@@ -15,6 +15,7 @@ HARDPOINT: OPERATION IRONVEIL
 Developer tools:
   hardpoint --audit               validate every map
   hardpoint --stairs [MAP|ALL]    walk the player mover up every climbing link
+  hardpoint --openness [MAP|ALL]  report how much walkable space has no cover
   hardpoint --icon <path> [size]  write the application icon as a PNG
   hardpoint --nav <MAP> [height]  print a slice of a map's navigation graph
   hardpoint --probe <MAP> <x> <z> explain one column of a map
@@ -37,6 +38,7 @@ fn main() {
             0
         }
         "--audit" => devtools::audit(),
+        "--openness" => devtools::openness(args.get(1).map(|s| s.as_str()).unwrap_or("ALL")),
         "--icon" => devtools::write_icon(
             args.get(1).map(|s| s.as_str()).unwrap_or("hardpoint.png"),
             args.get(2).and_then(|s| s.parse().ok()).unwrap_or(256),

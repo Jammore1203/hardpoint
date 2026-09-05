@@ -7,7 +7,8 @@
 //! thickness, doorway height, step size), which is a large part of why the
 //! set feels like one game.
 
-use super::brush::{Brush, BrushFlags, BrushKind, CollisionWorld, FaceMask, RampAxis};
+use super::brush::{Brush, BrushFlags, BrushKind, CollisionWorld, FaceMask, RampAxis, TraceMask};
+use crate::core::Rng;
 use super::nav::NavGrid;
 use super::{Env, MapData, MapId};
 use crate::assets::materials::Mat;
@@ -17,6 +18,23 @@ use glam::Vec3;
 
 /// Standard architectural constants. Every map obeys them, so movement,
 /// vaulting and sightlines behave identically everywhere.
+/// One kind of clutter the dressing pass can drop on open ground. Each map
+/// picks a palette that suits it, so a desert airfield gets revetments and
+/// pallets where a village gets planters and stacked timber.
+#[derive(Copy, Clone, Debug)]
+pub enum CoverPiece {
+    Container(Mat),
+    /// Material and cube size.
+    Crates(Mat, f32),
+    Barrels(Mat),
+    Sandbags(Mat),
+    /// Material, length and height.
+    Block(Mat, f32, f32),
+    /// Body material and top material.
+    Planter(Mat, Mat),
+    Pipes(Mat),
+}
+
 pub const WALL: f32 = 0.30;
 /// Doorways are deliberately wide. Beyond suiting the game's pace, a doorway
 /// narrower than about two metres cannot reliably hold a navigation node, and
@@ -52,6 +70,8 @@ pub struct MapBuilder {
     pub playspace: Option<Aabb>,
     default_mat: Mat,
     default_floor: Mat,
+    /// Clutter plan, applied in `finish` once the ground is known.
+    dressing: Option<(usize, u32, &'static [CoverPiece])>,
 }
 
 impl MapBuilder {
@@ -68,6 +88,7 @@ impl MapBuilder {
             playspace: None,
             default_mat: Mat::Concrete,
             default_floor: Mat::ConcreteFloor,
+            dressing: None,
         }
     }
 
@@ -521,10 +542,18 @@ impl MapBuilder {
         ));
         let t = 3.0;
         let h = y_ceiling - y_floor + 8.0;
-        self.clip(x0 - t, y_floor - 2.0, z0 - t, t, h, z1 - z0 + t * 2.0);
-        self.clip(x1, y_floor - 2.0, z0 - t, t, h, z1 - z0 + t * 2.0);
-        self.clip(x0 - t, y_floor - 2.0, z0 - t, x1 - x0 + t * 2.0, h, t);
-        self.clip(x0 - t, y_floor - 2.0, z1, x1 - x0 + t * 2.0, h, t);
+        // The boundary stops bullets as well as bodies. It is a wall; rounds
+        // leaving the world through it were both wrong and a way to shoot
+        // someone standing behind the map edge.
+        for (bx, bz, sx, sz) in [
+            (x0 - t, z0 - t, t, z1 - z0 + t * 2.0),
+            (x1, z0 - t, t, z1 - z0 + t * 2.0),
+            (x0 - t, z0 - t, x1 - x0 + t * 2.0, t),
+            (x0 - t, z1, x1 - x0 + t * 2.0, t),
+        ] {
+            let b = self.clip(bx, y_floor - 2.0, bz, sx, h, sz);
+            b.flags |= BrushFlags::BULLET_CLIP;
+        }
     }
 
     // --------------------------------------------------------------- finish
@@ -591,6 +620,153 @@ impl MapBuilder {
         for (b, m) in self.brushes.iter_mut().zip(new_masks) { b.faces = m; }
     }
 
+    /// Fills the most exposed ground with era-appropriate clutter.
+    ///
+    /// Hand-placing cover across twelve maps by eye is how you end up with
+    /// half of them still reading as an empty field, which is exactly the
+    /// complaint this answers. Instead the builder measures its own openness,
+    /// takes the worst cells and dresses them from the map's own palette,
+    /// aligned to a grid and rotated in right angles so it reads as a yard
+    /// somebody stacked rather than as scattered noise.
+    ///
+    /// Nothing is placed near a spawn, an objective or a pickup, nothing goes
+    /// next to another piece, and every piece is short enough to shoot over or
+    /// vault, so this adds cover without closing a single route. The map audit
+    /// and the traversal test both run afterwards and would catch it if it did.
+    pub fn dress_open_ground(&mut self, budget: usize, seed: u32, palette: &'static [CoverPiece]) {
+        self.dressing = Some((budget, seed, palette));
+    }
+
+    /// Places the clutter, using a preliminary navigation bake to know where
+    /// the ground players actually walk on is.
+    ///
+    /// Probing for the highest surface in a column instead put half of it on
+    /// roofs, where it changed nothing: the nav node count did not move and
+    /// neither did the openness measurement.
+    fn apply_dressing(&mut self, nav: &NavGrid) {
+        let Some((budget, seed, palette)) = self.dressing else { return };
+        if palette.is_empty() || nav.nodes.is_empty() { return; }
+        let Some(play) = self.playspace else { return };
+        const CELL: f32 = 3.0;
+        const CLEAR: f32 = 5.5;
+
+        // Somewhere a piece must not go: spawns, objectives and pickups.
+        let mut keep_out: Vec<Vec3> = Vec::new();
+        keep_out.extend(self.spawns.iter().map(|s| s.pos));
+        keep_out.extend(self.domination.iter().map(|o| o.pos));
+        keep_out.extend(self.bomb_sites.iter().map(|o| o.pos));
+        keep_out.extend(self.pickups.iter().map(|p| p.pos));
+
+        let collision = CollisionWorld::new(self.brushes.clone());
+        let nx = (((play.max.x - play.min.x) / CELL).floor() as i32).max(1);
+        let nz = (((play.max.z - play.min.z) / CELL).floor() as i32).max(1);
+
+        // One candidate per coarse cell, taken from the navigation node in it
+        // that sits lowest: the ground floor is where the fighting happens.
+        let mut best_in_cell: Vec<Option<Vec3>> = vec![None; (nx * nz) as usize];
+        for n in nav.nodes.iter() {
+            let ix = ((n.pos.x - play.min.x) / CELL).floor() as i32;
+            let iz = ((n.pos.z - play.min.z) / CELL).floor() as i32;
+            if ix < 0 || iz < 0 || ix >= nx || iz >= nz { continue; }
+            let slot = &mut best_in_cell[(iz * nx + ix) as usize];
+            match slot {
+                Some(p) if p.y <= n.pos.y => {}
+                _ => *slot = Some(n.pos),
+            }
+        }
+
+        let mut candidates: Vec<(f32, i32, i32, Vec3)> = Vec::new();
+        let mut rejected_close = 0u32;
+        let mut rejected_stand = 0u32;
+        let mut rejected_keepout = 0u32;
+        let mut rejected_ground = 0u32;
+        for iz in 0..nz {
+            for ix in 0..nx {
+                let Some(node) = best_in_cell[(iz * nx + ix) as usize] else {
+                    rejected_ground += 1;
+                    continue;
+                };
+                let feet = node + Vec3::Y * 0.05;
+                // A prop needs more room than a player, or it seals the gap.
+                if !collision.standable(feet, 1.15, 2.4, 0.3) { rejected_stand += 1; continue; }
+                if keep_out.iter().any(|k| (*k - feet).length() < CLEAR) { rejected_keepout += 1; continue; }
+
+                // How exposed is it? Nearest obstruction on eight bearings.
+                let eye = feet + Vec3::Y * 1.05;
+                let mut nearest = f32::MAX;
+                for i in 0..8 {
+                    let a = i as f32 / 8.0 * std::f32::consts::TAU;
+                    let dir = Vec3::new(a.cos(), 0.0, a.sin());
+                    let hit = collision.trace_ray(eye, dir, 30.0, TraceMask::Shot);
+                    let d = if hit.hit { (hit.point - eye).length() } else { 30.0 };
+                    nearest = nearest.min(d);
+                }
+                if nearest < 6.0 { rejected_close += 1; continue; }
+                candidates.push((nearest, ix, iz, feet));
+            }
+        }
+
+        // Worst first, but never two pieces in adjacent cells: cover you can
+        // move between is cover, a wall is not.
+        candidates.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let mut used: Vec<(i32, i32)> = Vec::new();
+        let mut rng = Rng::seeded(seed ^ 0x9E37_79B9);
+        let mut placed = 0usize;
+        for (_, ix, iz, feet) in candidates {
+            if placed >= budget { break; }
+            if used.iter().any(|(ux, uz)| (ux - ix).abs() <= 1 && (uz - iz).abs() <= 1) { continue; }
+            let piece = palette[rng.below(palette.len() as u32) as usize];
+            let jx = rng.range(-0.6, 0.6);
+            let jz = rng.range(-0.6, 0.6);
+            let turned = rng.chance(0.5);
+            self.place_cover(piece, feet.x + jx, feet.y, feet.z + jz, turned, &mut rng);
+            used.push((ix, iz));
+            placed += 1;
+        }
+        if std::env::var_os("HARDPOINT_TRACE").is_some() {
+            eprintln!("[dress] {:?}: placed {}/{}  candidates {}  rejected: ground {} stand {} keepout {} close {}",
+                      self.id, placed, budget, used.len(), rejected_ground, rejected_stand,
+                      rejected_keepout, rejected_close);
+        }
+    }
+
+    fn place_cover(&mut self, piece: CoverPiece, x: f32, y: f32, z: f32, turned: bool, rng: &mut Rng) {
+        match piece {
+            CoverPiece::Container(mat) => { self.container(x, y, z, turned, mat); }
+            CoverPiece::Crates(mat, size) => {
+                self.crates(x, y, z, size, 1 + rng.below(2) as u32, mat);
+            }
+            CoverPiece::Barrels(mat) => {
+                let n = 2 + rng.below(3);
+                for i in 0..n {
+                    let a = i as f32 / n as f32 * std::f32::consts::TAU;
+                    self.barrel(x + a.cos() * 0.55, y, z + a.sin() * 0.55, mat);
+                }
+            }
+            CoverPiece::Sandbags(mat) => {
+                let (sx, sz) = if turned { (1.0, 3.2) } else { (3.2, 1.0) };
+                self.boxc(x, y, z, sx, 1.05, sz, mat).with_scale(1.2);
+            }
+            CoverPiece::Block(mat, w, h) => {
+                let (sx, sz) = if turned { (1.1, w) } else { (w, 1.1) };
+                self.boxc(x, y, z, sx, h, sz, mat).with_scale(1.6);
+            }
+            CoverPiece::Planter(mat, top) => {
+                let b = self.boxc(x, y, z, 2.2, 0.95, 2.2, mat);
+                b.top = top;
+                b.tex_scale = 1.4;
+            }
+            CoverPiece::Pipes(mat) => {
+                for i in 0..3 {
+                    let o = (i as f32 - 1.0) * 0.75;
+                    let (px, pz) = if turned { (x + o, z) } else { (x, z + o) };
+                    let (sx, sz) = if turned { (0.7, 3.4) } else { (3.4, 0.7) };
+                    self.boxc(px, y + i as f32 * 0.02, pz, sx, 0.7, sz, mat).with_scale(1.4);
+                }
+            }
+        }
+    }
+
     pub fn finish(mut self) -> MapData {
         self.cull_hidden_faces();
 
@@ -600,8 +776,17 @@ impl MapBuilder {
         }
         let play = self.playspace.unwrap_or(bounds);
 
-        let collision = CollisionWorld::new(self.brushes.clone());
-        let nav = NavGrid::bake(&collision, play);
+        // Navigation is baked twice: once to find the ground the dressing pass
+        // should use, then again over the geometry it added. A map without
+        // dressing pays nothing for this.
+        let mut collision = CollisionWorld::new(self.brushes.clone());
+        let mut nav = NavGrid::bake(&collision, play);
+        if self.dressing.is_some() {
+            self.apply_dressing(&nav);
+            self.cull_hidden_faces();
+            collision = CollisionWorld::new(self.brushes.clone());
+            nav = NavGrid::bake(&collision, play);
+        }
 
         let mut map = MapData {
             id: self.id,

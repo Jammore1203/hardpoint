@@ -7,6 +7,7 @@
 
 pub mod png;
 
+use crate::maps::brush::TraceMask;
 use crate::maps::{MapId, ALL_MAPS};
 use glam::Vec3;
 
@@ -822,4 +823,82 @@ pub fn write_icon(path: &str, size: u32) -> i32 {
         Ok(()) => { println!("wrote {} ({}x{})", path, n, n); 0 }
         Err(e) => { eprintln!("could not write {}: {}", path, e); 1 }
     }
+}
+
+/// Measures how exposed a map is: how much of the walkable space has no cover
+/// near it, and how far you can see from it.
+///
+/// "Too open" is a real complaint but a vague one, so this turns it into two
+/// numbers per map and a picture of where the problem is. Cover is anything
+/// that breaks a chest-height line within a few metres; a sightline is how far
+/// you can see before something stops the ray.
+pub fn openness(map_name: &str) -> i32 {
+    let maps: Vec<MapId> = match map_name {
+        "ALL" | "all" => crate::maps::ALL_MAPS.to_vec(),
+        other => match ALL_MAPS.iter().find(|m| m.name().eq_ignore_ascii_case(other)) {
+            Some(m) => vec![*m],
+            None => { eprintln!("unknown map '{}'", other); return 2; }
+        },
+    };
+
+    const RAYS: usize = 16;
+    const COVER_RANGE: f32 = 7.0;
+    const SIGHT_RANGE: f32 = 70.0;
+    let chest = 1.05f32;
+
+    println!("{:<12} {:>8} {:>9} {:>9} {:>10}", "MAP", "NODES", "EXPOSED", "MED SIGHT", "P90 SIGHT");
+    for id in maps {
+        let map = crate::maps::library::build(id);
+        let mut sights: Vec<f32> = Vec::with_capacity(map.nav.nodes.len());
+        let mut exposed = 0u32;
+        // Coarse grid for the picture, two metres a cell.
+        let b = map.bounds;
+        let gw = (((b.max.x - b.min.x) / 2.0).ceil() as usize).max(1);
+        let gh = (((b.max.z - b.min.z) / 2.0).ceil() as usize).max(1);
+        let mut cells = vec![(0u32, 0u32); gw * gh];
+
+        for n in map.nav.nodes.iter() {
+            let eye = n.pos + Vec3::Y * chest;
+            let mut nearest_cover = f32::MAX;
+            let mut longest = 0.0f32;
+            for i in 0..RAYS {
+                let a = i as f32 / RAYS as f32 * std::f32::consts::TAU;
+                let dir = Vec3::new(a.cos(), 0.0, a.sin());
+                let hit = map.collision.trace_ray(eye, dir, SIGHT_RANGE, TraceMask::Shot);
+                let d = if hit.hit { (hit.point - eye).length() } else { SIGHT_RANGE };
+                nearest_cover = nearest_cover.min(d);
+                longest = longest.max(d);
+            }
+            sights.push(longest);
+            let is_exposed = nearest_cover > COVER_RANGE;
+            if is_exposed { exposed += 1; }
+            let cx = (((n.pos.x - b.min.x) / 2.0) as usize).min(gw - 1);
+            let cz = (((n.pos.z - b.min.z) / 2.0) as usize).min(gh - 1);
+            let c = &mut cells[cz * gw + cx];
+            c.0 += 1;
+            if is_exposed { c.1 += 1; }
+        }
+
+        sights.sort_by(f32::total_cmp);
+        let med = sights.get(sights.len() / 2).copied().unwrap_or(0.0);
+        let p90 = sights.get(sights.len() * 9 / 10).copied().unwrap_or(0.0);
+        let pct = if sights.is_empty() { 0.0 } else { exposed as f32 * 100.0 / sights.len() as f32 };
+        println!("{:<12} {:>8} {:>8.1}% {:>8.1}m {:>9.1}m", id.name(), sights.len(), pct, med, p90);
+
+        if std::env::var_os("HARDPOINT_MAPS").is_some() {
+            // '#' fully covered, '.' fully exposed, blank for no walkable space.
+            for z in 0..gh {
+                let mut line = String::with_capacity(gw);
+                for x in 0..gw {
+                    let (total, ex) = cells[z * gw + x];
+                    line.push(if total == 0 { ' ' }
+                              else if ex * 4 >= total * 3 { '.' }
+                              else if ex * 2 >= total { ':' }
+                              else { '#' });
+                }
+                println!("  {}", line);
+            }
+        }
+    }
+    0
 }

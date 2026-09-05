@@ -439,6 +439,17 @@ fn ironveil(b: &mut MapBuilder) {
     b.pickup(30.0, 0.15, -22.0, PickupKind::Ammo);
     b.pickup(-24.0, 4.75, -32.0, PickupKind::Grenade);
     b.pickup(24.0, 4.75, 32.0, PickupKind::Grenade);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(56, 0x1A01, &[
+        CoverPiece::Container(Mat::ShippingRed),
+        CoverPiece::Container(Mat::ShippingBlue),
+        CoverPiece::Crates(Mat::WoodCrate, 1.5),
+        CoverPiece::Barrels(Mat::BarrelRust),
+        CoverPiece::Sandbags(Mat::Sandbag),
+        CoverPiece::Block(Mat::Concrete, 3.4, 1.5),
+        CoverPiece::Pipes(Mat::PipeMetal),
+    ]);
 }
 
 // ================================================================ STORMWORKS
@@ -552,6 +563,13 @@ fn stormworks(b: &mut MapBuilder) {
     b.pickup(33.0, 5.7, 0.0, PickupKind::Armor);
     b.pickup(25.0, 3.5, 26.0, PickupKind::Grenade);
     b.pickup(-23.0, 0.1, 26.0, PickupKind::Health);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(8, 0x1A0B, &[
+        CoverPiece::Crates(Mat::WoodCrate, 1.4),
+        CoverPiece::Barrels(Mat::BarrelRust),
+        CoverPiece::Pipes(Mat::PipeMetal),
+    ]);
 }
 
 // =================================================================== BELVOIR
@@ -664,6 +682,15 @@ fn belvoir(b: &mut MapBuilder) {
     b.pickup(-27.0, 0.15, -3.0, PickupKind::Health);
     b.pickup(33.0, 0.15, -13.0, PickupKind::Grenade);
     b.pickup(10.0, 2.0 * STOREY + 0.1, -28.0, PickupKind::Grenade);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(46, 0x1A02, &[
+        CoverPiece::Crates(Mat::WoodCrate, 1.3),
+        CoverPiece::Barrels(Mat::Barrel),
+        CoverPiece::Planter(Mat::StoneWall, Mat::Foliage),
+        CoverPiece::Block(Mat::StoneWall, 3.0, 1.3),
+        CoverPiece::Sandbags(Mat::Sandbag),
+    ]);
 }
 
 // ================================================================= GREENLINE
@@ -795,6 +822,16 @@ fn greenline(b: &mut MapBuilder) {
     b.pickup(20.0, -2.1, 0.0, PickupKind::Ammo);
     b.pickup(-6.0, 4.6, 22.0, PickupKind::Grenade);
     b.pickup(11.0, 4.6, -22.0, PickupKind::Health);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(72, 0x1A03, &[
+        CoverPiece::Crates(Mat::WoodCrate, 1.4),
+        CoverPiece::Barrels(Mat::BarrelRust),
+        CoverPiece::Planter(Mat::Rock, Mat::Foliage),
+        CoverPiece::Block(Mat::Rock, 3.2, 1.4),
+        CoverPiece::Sandbags(Mat::Sandbag),
+        CoverPiece::Pipes(Mat::PipeMetal),
+    ]);
 }
 
 // ================================================================== WHITEOUT
@@ -904,6 +941,15 @@ fn whiteout(b: &mut MapBuilder) {
     b.pickup(0.0, ty + 0.1, 0.0, PickupKind::Health);
     b.pickup(-16.0, 0.15, -21.0, PickupKind::Grenade);
     b.pickup(5.4, 7.0, -2.0, PickupKind::Grenade);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(26, 0x1A04, &[
+        CoverPiece::Crates(Mat::WoodCrate, 1.4),
+        CoverPiece::Barrels(Mat::BarrelRust),
+        CoverPiece::Block(Mat::SnowRock, 3.2, 1.5),
+        CoverPiece::Sandbags(Mat::Sandbag),
+        CoverPiece::Container(Mat::ShippingGreen),
+    ]);
 }
 
 // ================================================================== HIGHRISE
@@ -1000,6 +1046,15 @@ fn highrise(b: &mut MapBuilder) {
     b.pickup(0.0, py + 0.1, -9.0, PickupKind::Armor);
     b.pickup(20.0, 0.15, 6.0, PickupKind::Grenade);
     b.pickup(-20.0, 0.15, 20.0, PickupKind::Health);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(58, 0x1A05, &[
+        CoverPiece::Crates(Mat::WoodCrate, 1.3),
+        CoverPiece::Planter(Mat::ConcretePanel, Mat::Foliage),
+        CoverPiece::Block(Mat::Concrete, 3.0, 1.2),
+        CoverPiece::Barrels(Mat::Barrel),
+        CoverPiece::Sandbags(Mat::Sandbag),
+    ]);
 }
 
 // =================================================================== DRYDOCK
@@ -1127,6 +1182,15 @@ fn drydock(b: &mut MapBuilder) {
     b.pickup(26.0, 9.1, 0.0, PickupKind::Armor);
     b.pickup(0.0, -0.5, 0.0, PickupKind::Grenade);
     b.pickup(-39.0, 0.1, -6.0, PickupKind::Health);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(28, 0x1A06, &[
+        CoverPiece::Container(Mat::ShippingGreen),
+        CoverPiece::Crates(Mat::WoodCrate, 1.5),
+        CoverPiece::Barrels(Mat::BarrelRust),
+        CoverPiece::Pipes(Mat::PipeMetal),
+        CoverPiece::Block(Mat::HullPainted, 3.4, 1.4),
+    ]);
 }
 
 // =================================================================== FOUNDRY
@@ -1251,6 +1315,14 @@ fn foundry(b: &mut MapBuilder) {
     b.pickup(0.0, l1 + 0.1, -9.3, PickupKind::Ammo);
     b.pickup(0.0, l1 + 0.1, -27.0, PickupKind::Grenade);
     b.pickup(-24.0, 0.15, 8.0, PickupKind::Health);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(40, 0x1A07, &[
+        CoverPiece::Crates(Mat::WoodCrate, 1.4),
+        CoverPiece::Barrels(Mat::BarrelRust),
+        CoverPiece::Pipes(Mat::PipeMetal),
+        CoverPiece::Block(Mat::MetalRust, 3.0, 1.3),
+    ]);
 }
 
 // ================================================================== SALTBITE
@@ -1375,6 +1447,14 @@ fn saltbite(b: &mut MapBuilder) {
     b.pickup(-22.0, 6.1, 0.0, PickupKind::Grenade);
     b.pickup(22.0, 6.1, 0.0, PickupKind::Grenade);
     b.pickup(-32.0, 0.1, 0.0, PickupKind::Health);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(20, 0x1A08, &[
+        CoverPiece::Sandbags(Mat::Sandbag),
+        CoverPiece::Barrels(Mat::BarrelRust),
+        CoverPiece::Crates(Mat::WoodCrate, 1.4),
+        CoverPiece::Block(Mat::Rock, 3.2, 1.4),
+    ]);
 }
 
 // ================================================================== DEEPWELL
@@ -1491,6 +1571,12 @@ fn deepwell(b: &mut MapBuilder) {
     b.pickup(22.0, lower + 0.1, 24.0, PickupKind::Armor);
     b.pickup(-18.0, 0.1, -18.0, PickupKind::Grenade);
     b.pickup(18.0, 0.1, 18.0, PickupKind::Health);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(6, 0x1A0C, &[
+        CoverPiece::Crates(Mat::WoodCrate, 1.3),
+        CoverPiece::Barrels(Mat::BarrelRust),
+    ]);
 }
 
 // ================================================================== JUNCTION
@@ -1601,6 +1687,15 @@ fn junction(b: &mut MapBuilder) {
     b.pickup(-33.0, 4.5, 22.0, PickupKind::Armor);
     b.pickup(-20.0, 0.15, 0.0, PickupKind::Grenade);
     b.pickup(20.0, 0.15, -11.0, PickupKind::Health);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(22, 0x1A09, &[
+        CoverPiece::Container(Mat::ShippingRed),
+        CoverPiece::Crates(Mat::WoodCrate, 1.5),
+        CoverPiece::Barrels(Mat::BarrelRust),
+        CoverPiece::Block(Mat::Concrete, 3.2, 1.4),
+        CoverPiece::Pipes(Mat::PipeMetal),
+    ]);
 }
 
 // ================================================================== OVERPASS
@@ -1709,4 +1804,13 @@ fn overpass(b: &mut MapBuilder) {
     b.pickup(-20.0, 0.15, -19.0, PickupKind::Grenade);
     b.pickup(13.0, 4.2, -20.0, PickupKind::Health);
     b.pickup(0.0, 2.3, 24.0, PickupKind::Grenade);
+
+    // Clutter the open ground; see MapBuilder::dress_open_ground.
+    b.dress_open_ground(30, 0x1A0A, &[
+        CoverPiece::Block(Mat::Concrete, 3.4, 1.3),
+        CoverPiece::Sandbags(Mat::Sandbag),
+        CoverPiece::Barrels(Mat::Barrel),
+        CoverPiece::Crates(Mat::WoodCrate, 1.4),
+        CoverPiece::Container(Mat::ShippingBlue),
+    ]);
 }
