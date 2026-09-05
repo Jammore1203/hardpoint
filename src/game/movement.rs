@@ -289,6 +289,28 @@ pub fn move_player(
     // is how players end up inside walls.
     ev.depenetrated = resolve_penetration(st, world);
 
+    // Ride a ramp that has risen underneath us.
+    //
+    // Ramps are height fields, not boxes: the horizontal sweep passes through
+    // them and the ground probe only ever looks down. Walking *up* one, the
+    // surface climbed out of the probe window within a few frames and the
+    // player fell through the ramp onto whatever was below it. Boxes and
+    // stairs are handled by the step-up path; this is the ramp equivalent.
+    if was_grounded && st.vel.y <= 0.1 {
+        if let Some((h, brush)) = world.ramp_surface(st.pos, tune::RADIUS, tune::STEP_HEIGHT) {
+            let rise = h - st.pos.y;
+            if rise > 0.0 && rise <= tune::STEP_HEIGHT {
+                let lifted = Vec3::new(st.pos.x, h, st.pos.z);
+                let body = Aabb::from_base(lifted, tune::RADIUS - STEP_SKIN, st.height);
+                if !world.box_blocked(&body, TraceMask::Solid) {
+                    st.pos.y = h;
+                    st.vel.y = 0.0;
+                    st.ground_brush = brush;
+                }
+            }
+        }
+    }
+
     // Ground probe. Doing this after the move keeps `grounded` consistent with
     // the position we actually ended at.
     let (grounded, ground_brush) = probe_ground(st, world);
@@ -399,6 +421,11 @@ fn slide_move(st: &mut MoveState, world: &CollisionWorld, dt: f32) -> f32 {
     (d.x * d.x + d.z * d.z).sqrt()
 }
 
+/// How much narrower the step-up traces are than the player. Two centimetres
+/// is enough to stop a wall the player is merely brushing from cancelling the
+/// step, and far too small to fit through anything.
+const STEP_SKIN: f32 = 0.02;
+
 /// Attempts to walk up a ledge no taller than `STEP_HEIGHT`.
 ///
 /// Lift, move across, drop back down. Accepting the step only when the mover
@@ -413,14 +440,22 @@ fn try_step_up(st: &mut MoveState, world: &CollisionWorld, remaining: &mut Vec3)
 
     let saved_pos = st.pos;
 
+    // The step traces use a box a hair narrower than the player. Stairs are
+    // routinely built hard against a wall with a centimetre to spare, and a
+    // full-width trace then reports an instant hit on the wall it is sliding
+    // along, so the step is refused and the player sticks halfway up a
+    // staircase with the key held down. The final position is still validated
+    // at full width below, so this cannot push anyone into geometry.
+    let slim = |st: &MoveState| Aabb::from_base(st.pos, tune::RADIUS - STEP_SKIN, st.height);
+
     // 1. Lift, but no further than there is room for.
-    let up_hit = world.trace_box(&st.body(), Vec3::Y * tune::STEP_HEIGHT, TraceMask::Solid);
+    let up_hit = world.trace_box(&slim(st), Vec3::Y * tune::STEP_HEIGHT, TraceMask::Solid);
     let lift = tune::STEP_HEIGHT * up_hit.fraction - 0.004;
     if lift < 0.06 { return false; }
     st.pos.y += lift;
 
     // 2. Move across at the raised height.
-    let across = world.trace_box(&st.body(), horiz, TraceMask::Solid);
+    let across = world.trace_box(&slim(st), horiz, TraceMask::Solid);
     let gained = horiz * across.fraction;
     if gained.length_squared() < 1e-6 {
         st.pos = saved_pos;
@@ -430,7 +465,7 @@ fn try_step_up(st: &mut MoveState, world: &CollisionWorld, remaining: &mut Vec3)
 
     // 3. Settle back down onto whatever is under us.
     let drop = lift + 0.02;
-    let down = world.trace_box(&st.body(), Vec3::NEG_Y * drop, TraceMask::Solid);
+    let down = world.trace_box(&slim(st), Vec3::NEG_Y * drop, TraceMask::Solid);
     st.pos.y -= drop * down.fraction;
 
     // Refuse the step if we ended up on a surface too steep to stand on, or

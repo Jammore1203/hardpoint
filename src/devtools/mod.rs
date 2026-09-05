@@ -663,3 +663,110 @@ fn event_name(e: &crate::game::events::GameEvent) -> &'static str {
         G::TeamChanged { .. } => "TeamChanged",
     }
 }
+
+/// Walks the real player mover along real paths across a map and reports
+/// anywhere it stops making progress.
+///
+/// This is the player's experience, not a bot's: bots have an unstick nudge
+/// that papers over geometry a human simply gets wedged in. Any point where a
+/// player holding forward along a route the navigation graph offers stops
+/// moving is a place someone will report as "I can't get up these stairs".
+pub fn stair_test(map_name: &str) -> i32 {
+    use crate::core::Rng;
+    use crate::game::movement::{self, MoveMods, MoveState};
+    use crate::game::types::{Buttons, InputCmd, Stance};
+    use crate::maps::nav::PathFinder;
+
+    let maps: Vec<MapId> = match map_name {
+        "ALL" | "all" => crate::maps::ALL_MAPS.to_vec(),
+        other => match ALL_MAPS.iter().find(|m| m.name().eq_ignore_ascii_case(other)) {
+            Some(m) => vec![*m],
+            None => { eprintln!("unknown map '{}'", other); return 2; }
+        },
+    };
+
+    let mods = MoveMods {
+        weapon_scale: 1.0, ads_scale: 1.0, perk_scale: 1.0,
+        block_sprint: false, want_ads: false, ads_time: 0.25,
+    };
+    let dt = 1.0 / 60.0;
+    let mut total_stuck = 0;
+
+    for id in maps {
+        let map = crate::maps::library::build(id);
+        let mut rng = Rng::seeded(0x5A17 ^ id as u32);
+        let mut finder = PathFinder::default();
+        let mut stuck: Vec<(Vec3, Vec3)> = Vec::new();
+        let routes = 400;
+        let mut walked = 0u32;
+
+        for _ in 0..routes {
+            let (Some(a), Some(b)) = (map.nav.random_node(&mut rng), map.nav.random_node(&mut rng))
+                else { continue };
+            let start = map.nav.node(a).pos;
+            let goal = map.nav.node(b).pos;
+            if (start - goal).length() < 8.0 { continue; }
+            if !finder.find(&map.nav, &map.collision, start, goal, 40_000) { continue; }
+            let path: Vec<Vec3> = finder.path.clone();
+            if path.len() < 2 { continue; }
+            walked += 1;
+
+            let mut st = MoveState::default();
+            st.pos = start + Vec3::Y * 0.05;
+            st.height = Stance::Stand.height();
+            let mut idx = 0usize;
+            let mut last = st.pos;
+            let mut still = 0u32;
+            let mut wedged: Option<Vec3> = None;
+
+            // Generous: sixty seconds of simulation for a route that should
+            // take a handful.
+            for _ in 0..3600 {
+                if idx >= path.len() { break; }
+                let target = path[idx];
+                let to = Vec3::new(target.x - st.pos.x, 0.0, target.z - st.pos.z);
+                if to.length() < 0.9 && (target.y - st.pos.y).abs() < 1.6 {
+                    idx += 1;
+                    continue;
+                }
+                let yaw = crate::math::angles_from_dir(to.normalize_or_zero()).0;
+                // A player who stops moving leans on the stick sideways. Model
+                // that, so what this measures is geometry a person genuinely
+                // cannot get out of rather than a naive straight-line walker
+                // catching a corner.
+                let strafe = if still > 12 {
+                    if (still / 24) % 2 == 0 { 90 } else { -90 }
+                } else { 0 };
+                let cmd = InputCmd {
+                    seq: 0, dt_ms: 16, move_f: 127, move_r: strafe,
+                    yaw, pitch: 0.0, buttons: Buttons::empty(), weapon: 0xFF,
+                };
+                movement::move_player(&mut st, &cmd, &mods, &map.collision, dt);
+
+                // Two full seconds of trying, including strafing both ways, is
+                // wedged rather than slow.
+                if (st.pos - last).length() < 0.004 { still += 1; } else { still = 0; }
+                last = st.pos;
+                if still > 120 { wedged = Some(st.pos); break; }
+            }
+            if let Some(p) = wedged {
+                if stuck.len() < 8 { stuck.push((p, path[idx.min(path.len() - 1)])); }
+                total_stuck += 1;
+            }
+        }
+
+        println!("{:<12} {:>4} routes walked, {} wedged", id.name(), walked, stuck.len());
+        for (at, heading) in &stuck {
+            println!("    wedged at ({:.1},{:.1},{:.1}) heading for ({:.1},{:.1},{:.1})",
+                     at.x, at.y, at.z, heading.x, heading.y, heading.z);
+        }
+    }
+
+    if total_stuck == 0 {
+        println!("\nno wedge points: every route is walkable by a player holding forward");
+        0
+    } else {
+        println!("\n{} routes wedged", total_stuck);
+        1
+    }
+}

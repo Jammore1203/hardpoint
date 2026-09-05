@@ -14,6 +14,7 @@ HARDPOINT: OPERATION IRONVEIL
 
 Developer tools:
   hardpoint --audit               validate every map
+  hardpoint --stairs [MAP|ALL]    walk the player mover up every climbing link
   hardpoint --nav <MAP> [height]  print a slice of a map's navigation graph
   hardpoint --probe <MAP> <x> <z> explain one column of a map
   hardpoint --simtest <MAP> [s] [n]   headless movement and collision soak
@@ -35,6 +36,7 @@ fn main() {
             0
         }
         "--audit" => devtools::audit(),
+        "--stairs" => devtools::stair_test(args.get(1).map(|s| s.as_str()).unwrap_or("ALL")),
         "--nav" => {
             let name = args.get(1).map(|s| s.as_str()).unwrap_or("IRONVEIL");
             let y = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.0);

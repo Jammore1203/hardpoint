@@ -357,9 +357,6 @@ impl App {
                     }
                 }
                 GameEvent::HitPlayer { attacker, victim, pos, zone, damage, lethal } => {
-                    if std::env::var_os("HARDPOINT_TRACE").is_some() {
-                        eprintln!("[hit] attacker={} victim={} me={} dmg={} lethal={}", attacker, victim, me, damage, lethal);
-                    }
                     let dir = if victim == me { (pos - my_pos).normalize_or_zero() } else { Vec3::Y };
                     self.effects.blood(pos, dir);
                     if attacker == me {

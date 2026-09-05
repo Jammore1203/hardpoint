@@ -25,7 +25,13 @@ pub const MAX_DROP: f32 = 3.2;
 /// staircase impassable. Each individual riser is still checked against
 /// `STEP_UP` by the walk simulation.
 pub const MAX_CLIMB_SLOPE: f32 = 1.45;
-const AGENT_RADIUS: f32 = 0.33;
+/// The navigation agent must be at least as wide as the player, plus a margin.
+///
+/// It used to be a hair narrower, which meant navigation happily placed nodes
+/// a centimetre from a wall. Bots pathed through them, the stair-climb test
+/// walked them, and a player following the same line scraped the wall and
+/// stuck. Navigation has to be a subset of where the player actually fits.
+const AGENT_RADIUS: f32 = crate::game::movement::tune::RADIUS + 0.02;
 /// How far above a surface an agent's collision box is considered to start.
 /// It must exceed the thickness of any decorative overlay slab a map lays on
 /// top of a floor (road markings, ice, paving), otherwise the box of a node in
@@ -477,7 +483,59 @@ fn walkable_between(world: &CollisionWorld, from: Vec3, to: Vec3) -> bool {
     }
     // We must actually arrive at the destination surface, not one above or
     // below it, or the graph would claim links between stacked walkways.
-    (cur.y - to.y).abs() <= 0.45
+    if (cur.y - to.y).abs() > 0.45 { return false; }
+
+    // A climb is confirmed with the real mover. The stepped walk above is an
+    // approximation and a generous one: it accepts anything up to about a
+    // 57-degree slope, including plenty a player cannot actually climb. That
+    // is how bots came to path up staircases a human wedges on. Navigation
+    // claiming ground the player cannot reach is far worse than navigation
+    // missing a little, so anything that rises gets checked properly.
+    if to.y - from.y > 0.20 && !climbable_by_player(world, from, to) {
+        return false;
+    }
+    true
+}
+
+/// Runs the actual player movement code from `from` to `to` and reports
+/// whether it arrives. Only called for links that climb, which is a small
+/// fraction of the graph, so the cost stays in the noise at map build time.
+fn climbable_by_player(world: &CollisionWorld, from: Vec3, to: Vec3) -> bool {
+    use crate::game::movement::{self, MoveMods, MoveState};
+    use crate::game::types::{Buttons, InputCmd, Stance};
+
+    let flat = Vec3::new(to.x - from.x, 0.0, to.z - from.z);
+    let dist = flat.length();
+    if dist < 1e-4 { return true; }
+    let dir = flat / dist;
+
+    let mut st = MoveState::default();
+    st.pos = from + Vec3::Y * 0.02;
+    st.height = Stance::Stand.height();
+    st.stance = Stance::Stand;
+    // A player meets a step already moving; a standing start is a harder test
+    // than anything that happens in play.
+    st.vel = dir * 5.0;
+    st.grounded = true;
+
+    let mods = MoveMods {
+        weapon_scale: 1.0, ads_scale: 1.0, perk_scale: 1.0,
+        block_sprint: false, want_ads: false, ads_time: 0.25,
+    };
+    let yaw = crate::math::angles_from_dir(dir).0;
+    let dt = 1.0 / 60.0;
+    // A second: several times what a metre of stair or ramp takes, but the
+    // mover has to accelerate from the node and a ramp is climbed gradually.
+    for _ in 0..60 {
+        let cmd = InputCmd {
+            seq: 0, dt_ms: 16, move_f: 127, move_r: 0,
+            yaw, pitch: 0.0, buttons: Buttons::empty(), weapon: 0xFF,
+        };
+        movement::move_player(&mut st, &cmd, &mods, world, dt);
+        let flat_err = Vec3::new(st.pos.x - to.x, 0.0, st.pos.z - to.z).length();
+        if flat_err < 0.45 && (st.pos.y - to.y).abs() < 0.35 { return true; }
+    }
+    false
 }
 
 /// Reusable A* workspace. One of these per bot avoids all path allocation in
@@ -623,3 +681,6 @@ fn pop_min(open: &mut Vec<(f32, u32)>) -> Option<u32> {
     }
     Some(open.swap_remove(best).1)
 }
+
+// Navigation must never claim ground the player cannot stand on.
+const _: () = assert!(AGENT_RADIUS >= crate::game::movement::tune::RADIUS);
