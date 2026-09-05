@@ -22,6 +22,10 @@ use crate::core::angle_delta;
 use crate::math::angles_from_dir;
 use glam::Vec3;
 
+/// A* expansion budget. A one-metre lattice on a large map runs to several
+/// thousand nodes, and the route the long way round a dock needs most of them.
+const PATH_BUDGET: u32 = 20_000;
+
 /// What the bot is trying to do right now.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Goal {
@@ -95,6 +99,11 @@ pub struct Bot {
     pub path_index: usize,
     pub goal_pos: Vec3,
     pub repath_at: f64,
+    /// Where around an objective this bot posts up, re-rolled periodically so
+    /// a defence shifts instead of freezing.
+    post_angle: f32,
+    post_radius: f32,
+    post_until: f64,
     /// Position at the last stuck check, and when it was taken.
     stuck_from: Vec3,
     stuck_at: f64,
@@ -137,6 +146,9 @@ impl Bot {
             path_index: 0,
             goal_pos: Vec3::ZERO,
             repath_at: 0.0,
+            post_angle: 0.0,
+            post_radius: 0.0,
+            post_until: 0.0,
             stuck_from: Vec3::ZERO,
             stuck_at: 0.0,
             unstick_until: 0.0,
@@ -299,6 +311,14 @@ impl Bot {
                 // nobody meeting anybody.
                 let hunting = held >= 2;
 
+                // Roughly a third of the team holds what it has and the rest
+                // push. The penalty for an owned point has to be additive: a
+                // multiplier leaves a bot standing on its own flag with a cost
+                // of zero, which is how both teams end up camping their own
+                // corner and a match runs its whole clock with nobody meeting.
+                let defender = self.slot as usize % 3 == 0;
+                let own_penalty = if hunting { 400.0 } else if defender { 0.0 } else { 90.0 };
+
                 let mut best = (self.goal_pos, f32::MAX);
                 for (i, obj) in world.map.domination.iter().enumerate().take(3) {
                     let owner = Team::from_u8(hud[i] & 0x7F);
@@ -307,7 +327,7 @@ impl Bot {
                     let want = if contested {
                         d * 0.5                      // someone is on it: that is the fight
                     } else if owner == me.team {
-                        d * if hunting { 4.0 } else { 2.2 }
+                        d + own_penalty
                     } else {
                         d                            // neutral or theirs: take it
                     };
@@ -325,11 +345,18 @@ impl Bot {
                 if me.carrying_bomb {
                     world.map.bomb_sites.first().map(|o| o.pos).unwrap_or(my_pos)
                 } else {
-                    // Attackers converge on a site; defenders sit near one.
+                    // Attackers converge on a site; defenders hold one. Both
+                    // take a post around it rather than the exact centre: a
+                    // whole team standing on one marker is neither a defence
+                    // nor an attack, and it leaves half the roster motionless
+                    // for the entire round.
                     let sites = &world.map.bomb_sites;
                     if sites.is_empty() { return self.wander_target(world); }
                     let i = (self.slot as usize) % sites.len();
-                    sites[i].pos
+                    let site = &sites[i];
+                    let a = self.post_angle;
+                    let r = site.radius + 4.0 + self.post_radius;
+                    site.pos + Vec3::new(a.cos() * r, 0.0, a.sin() * r)
                 }
             }
             _ => {
@@ -363,12 +390,26 @@ impl Bot {
         let Some(me) = world.player(self.slot) else { return };
         self.goal_pos = to;
         self.repath_at = now + 0.9 + self.rng.range(0.0, 0.5) as f64;
-        if self.finder.find(&world.map.nav, &world.map.collision, me.mv.pos, to, 3000) {
+        // A budget this small used to fail on the long way round a map like
+        // the shipyard, and a bot with no path simply stands there. Search
+        // properly, and if there is genuinely no route, go somewhere else
+        // rather than stall.
+        let from = me.mv.pos;
+        if !self.take_path(world, from, to) {
+            let alt = self.wander_target(world);
+            self.take_path(world, from, alt);
+        }
+    }
+
+    fn take_path(&mut self, world: &World, from: Vec3, to: Vec3) -> bool {
+        if self.finder.find(&world.map.nav, &world.map.collision, from, to, PATH_BUDGET) {
             self.path.clear();
             self.path.extend_from_slice(&self.finder.path);
             self.path_index = 0;
+            true
         } else {
             self.path.clear();
+            false
         }
     }
 
@@ -398,6 +439,11 @@ impl Bot {
         }
 
         // ------------------------------------------------- staggered thinking
+        if now >= self.post_until {
+            self.post_until = now + 9.0 + self.rng.range(0.0, 6.0) as f64;
+            self.post_angle = self.rng.range(0.0, std::f32::consts::TAU);
+            self.post_radius = self.rng.range(0.0, 7.0);
+        }
         if now >= self.think_at {
             self.think_at = now + 0.10;
             self.select_target(world, now);

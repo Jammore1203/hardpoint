@@ -376,6 +376,8 @@ pub fn bot_match(map_name: &str, mode_name: &str, seconds: f32, bots: u8, diffic
     let mut prev_deaths = vec![0u16; crate::game::types::MAX_PLAYERS];
     let mut last_pos: Vec<glam::Vec3> = server.world.players.iter().map(|p| p.mv.pos).collect();
     let mut phases_seen: Vec<Phase> = Vec::new();
+    let mut step: u32 = 0;
+    let trace = std::env::var_os("HARDPOINT_TRACE").is_some();
 
     for _ in 0..steps {
         server.update(dt);
@@ -390,6 +392,37 @@ pub fn bot_match(map_name: &str, mode_name: &str, seconds: f32, bots: u8, diffic
             prev_kills[i] = p.score.kills;
             prev_deaths[i] = p.score.deaths;
         }
+        // A periodic snapshot of who is where: the way to see a mode where the
+        // two teams simply never meet.
+        if trace && step % 900 == 0 {
+            let hud = server.mode.hud_state(&server.world, &server.state);
+            let owners: Vec<String> = (0..3)
+                .map(|i| format!("{:?}{}", crate::game::types::Team::from_u8(hud[i] & 0x7F),
+                                 if hud[i] & 0x80 != 0 { "*" } else { "" }))
+                .collect();
+            let mut nearest = f32::MAX;
+            for a in server.world.active_players() {
+                if !a.alive { continue; }
+                for b in server.world.active_players() {
+                    if !b.alive || !server.world.hostile(a.slot, b.slot) { continue; }
+                    nearest = nearest.min((a.mv.pos - b.mv.pos).length());
+                }
+            }
+            let dists: Vec<String> = server.world.map.domination.iter().take(3).map(|o| {
+                let mut near = f32::MAX;
+                for p in server.world.active_players() {
+                    if p.alive { near = near.min((p.mv.pos - o.pos).length()); }
+                }
+                format!("{:.0}", near)
+            }).collect();
+            let where_: Vec<String> = server.world.map.domination.iter().take(3)
+                .map(|o| format!("({:.0},{:.1},{:.0})r{:.0}", o.pos.x, o.pos.y, o.pos.z, o.radius))
+                .collect();
+            println!("  [t={:5.1}] points {}  closest enemy pair {:.1} m  nearest bot to each {}  at {}",
+                     server.world.time, owners.join(" "), nearest, dists.join("/"), where_.join(" "));
+        }
+        step += 1;
+
         if phases_seen.last() != Some(&server.state.phase) {
             if phases_seen.len() < 40 {
                 println!("  [t={:5.1}] -> {:?}  clock={:.1} alive P{}/V{} wins {}:{}",
