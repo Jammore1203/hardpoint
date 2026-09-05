@@ -130,6 +130,9 @@ pub struct Server {
     rng: Rng,
     /// Countdown to the next unsolicited clock broadcast.
     clock_sync: f32,
+    /// Development hook: when set, every distributed event is copied here so
+    /// the headless tools can check which systems actually ran.
+    pub event_tap: Option<Vec<GameEvent>>,
 
     time: f64,
     accumulator: f32,
@@ -181,6 +184,7 @@ impl Server {
             pending: Vec::new(),
             rng: Rng::from_clock(),
             clock_sync: 0.0,
+            event_tap: None,
             time: 0.0,
             accumulator: 0.0,
             snapshot_accum: 0.0,
@@ -975,6 +979,7 @@ impl Server {
     fn distribute_events(&mut self) {
         if self.world.events.is_empty() { return; }
         let events: Vec<GameEvent> = self.world.events.drain().collect();
+        if let Some(tap) = &mut self.event_tap { tap.extend(events.iter().cloned()); }
 
         for ev in &events {
             // Reliable, global events go through the message channel.

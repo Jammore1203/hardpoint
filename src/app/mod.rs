@@ -700,13 +700,11 @@ impl App {
             }
             Screen::Connecting => self.update_connecting(now),
             Screen::InGame => self.update_game(dt, now),
-            Screen::Lobby | Screen::Paused | Screen::Results | Screen::Loadout => {
-                // Keep receiving so the lobby list and match state stay live.
-                self.consume_events(now, false);
-                self.capture_mouse(false);
-                if let Some(c) = &mut self.client {
-                    c.interpolate(dt);
-                }
+            Screen::Lobby | Screen::Paused | Screen::Results | Screen::Loadout
+            | Screen::Settings | Screen::Controls | Screen::Career => {
+                // These can all sit on top of a live match, so they keep the
+                // connection fed as well as the lobby list and match state.
+                self.tick_connected_menu(dt, now);
             }
             _ => {
                 self.capture_mouse(false);

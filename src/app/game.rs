@@ -104,6 +104,37 @@ impl App {
         let _ = dt;
     }
 
+    /// A do-nothing command carrying only the current view angles.
+    ///
+    /// Menus opened during a match still have to talk to the server. A client
+    /// that stops sending is a client the server drops after ten seconds, so
+    /// standing in the loadout screen used to end the match with "connection
+    /// lost". The player stands still while the menu is open, which is the
+    /// honest behaviour: the world does not pause for one person.
+    fn idle_command(&mut self, dt: f32) -> InputCmd {
+        let mut cmd = InputCmd {
+            seq: 0,
+            dt_ms: (dt * 1000.0).clamp(1.0, 60.0) as u8,
+            move_f: 0,
+            move_r: 0,
+            yaw: self.yaw,
+            pitch: self.pitch.clamp(-1.53, 1.53),
+            buttons: Buttons::empty(),
+            weapon: 0xFF,
+        };
+        cmd.sanitize();
+        cmd
+    }
+
+    /// One frame of a screen that sits on top of a live match.
+    pub(super) fn tick_connected_menu(&mut self, dt: f32, now: f64) {
+        self.consume_events(now, false);
+        self.capture_mouse(false);
+        if self.client.is_none() { return; }
+        let cmd = self.idle_command(dt);
+        self.run_local_frame(cmd, dt);
+    }
+
     fn build_command(&mut self, dt: f32) -> InputCmd {
         let b = self.settings.bindings.clone();
         let mut buttons = Buttons::empty();
@@ -326,6 +357,9 @@ impl App {
                     }
                 }
                 GameEvent::HitPlayer { attacker, victim, pos, zone, damage, lethal } => {
+                    if std::env::var_os("HARDPOINT_TRACE").is_some() {
+                        eprintln!("[hit] attacker={} victim={} me={} dmg={} lethal={}", attacker, victim, me, damage, lethal);
+                    }
                     let dir = if victim == me { (pos - my_pos).normalize_or_zero() } else { Vec3::Y };
                     self.effects.blood(pos, dir);
                     if attacker == me {

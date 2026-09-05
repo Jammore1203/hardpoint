@@ -12,7 +12,7 @@
 
 use crate::core::{clampf, Rng};
 
-use crate::game::loadout::{ClassId, Equipment, Loadout};
+use crate::game::loadout::{ClassId, Equipment, Loadout, ALL_PERKS, LETHAL_EQUIPMENT, TACTICAL_EQUIPMENT};
 use crate::game::projectiles::smoke_occlusion;
 use crate::game::sim::World;
 use crate::game::types::{Buttons, InputCmd, Stance, Team, NO_PLAYER};
@@ -104,6 +104,8 @@ pub struct Bot {
     post_angle: f32,
     post_radius: f32,
     post_until: f64,
+    /// Cooldown so a bot does not flick between weapons every tick.
+    swap_ready_at: f64,
     /// Position at the last stuck check, and when it was taken.
     stuck_from: Vec3,
     stuck_at: f64,
@@ -149,6 +151,7 @@ impl Bot {
             post_angle: 0.0,
             post_radius: 0.0,
             post_until: 0.0,
+            swap_ready_at: 0.0,
             stuck_from: Vec3::ZERO,
             stuck_at: 0.0,
             unstick_until: 0.0,
@@ -185,6 +188,18 @@ impl Bot {
                 WeaponClass::Assault => AR[self.rng.below(4) as usize],
                 _ => l.primary,
             };
+        }
+        // Vary the kit too, not just the gun. With everyone on the class
+        // preset a whole team carried identical equipment and two of the four
+        // tactical types never appeared in a match at all.
+        if self.rng.chance(0.55) {
+            l.lethal = LETHAL_EQUIPMENT[self.rng.below(LETHAL_EQUIPMENT.len() as u32) as usize];
+        }
+        if self.rng.chance(0.65) {
+            l.tactical = TACTICAL_EQUIPMENT[self.rng.below(TACTICAL_EQUIPMENT.len() as u32) as usize];
+        }
+        if self.rng.chance(0.5) {
+            l.perk = ALL_PERKS[self.rng.below(ALL_PERKS.len() as u32) as usize];
         }
         l.sanitize(level);
         l
@@ -343,7 +358,14 @@ impl Bot {
             }
             ModeId::SearchDestroy => {
                 if me.carrying_bomb {
-                    world.map.bomb_sites.first().map(|o| o.pos).unwrap_or(my_pos)
+                    // The nearest site, not always the first: a carrier that
+                    // walks the length of the map dies before it plants, which
+                    // is why a whole match could pass with no bomb ever down.
+                    world.map.bomb_sites.iter()
+                        .min_by(|a, b| (a.pos - my_pos).length()
+                            .total_cmp(&(b.pos - my_pos).length()))
+                        .map(|o| o.pos)
+                        .unwrap_or(my_pos)
                 } else {
                     // Attackers converge on a site; defenders hold one. Both
                     // take a post around it rather than the exact centre: a
@@ -577,9 +599,13 @@ impl Bot {
                     if dist > 30.0 && now > self.crouch_until && self.rng.chance(0.01) {
                         self.crouch_until = now + 1.6;
                     }
-                    // Melee if we are close enough that shooting is silly.
-                    if dist < 1.9 && self.rng.chance(0.25) {
+                    // Melee at arm's length, and always when the gun is dry:
+                    // a bot that stands there clicking an empty weapon reads
+                    // as broken rather than as a bot.
+                    let dry = me.weapon().ammo == 0;
+                    if dist < 2.4 && (dry || self.rng.chance(0.06)) {
                         buttons.insert(Buttons::MELEE);
+                        wants_fire = false;
                     }
                 }
             }
@@ -603,12 +629,26 @@ impl Bot {
                 }
             }
         }
-        // Smoke when badly hurt and out in the open.
-        if self.goal == Goal::Retreat && me.tactical_count > 0
-            && me.loadout.tactical == Equipment::Smoke && now > self.nade_ready_at
-        {
-            buttons.insert(Buttons::TACTICAL);
-            self.nade_ready_at = now + 12.0;
+        // Tactical equipment. Smoke covers a retreat; a flashbang or an
+        // incendiary goes in ahead of a push. Without this branch the whole
+        // tactical slot was decoration: bots only ever threw lethals.
+        if me.tactical_count > 0 && now > self.nade_ready_at {
+            let want = match me.loadout.tactical {
+                Equipment::Smoke => self.goal == Goal::Retreat,
+                _ => {
+                    // Flash or burn someone we know about but cannot shoot:
+                    // exactly the moment a human reaches for one.
+                    self.target != NO_PLAYER
+                        && !self.can_see_target
+                        && now - self.target_last_seen < 4.0
+                        && (6.0..30.0).contains(&(self.target_last_pos - my_pos).length())
+                        && self.rng.chance(self.personality.nade_appetite as f32 * dt * 3.0)
+                }
+            };
+            if want {
+                buttons.insert(Buttons::TACTICAL);
+                self.nade_ready_at = now + 11.0;
+            }
         }
 
         // ----------------------------------------------------------- movement
@@ -667,9 +707,68 @@ impl Bot {
         self.cmd.yaw = self.aim_yaw;
         self.cmd.pitch = self.aim_pitch;
         self.cmd.buttons = buttons;
-        self.cmd.weapon = 0xFF;
+        self.cmd.weapon = self.pick_weapon(world, now);
         self.cmd.sanitize();
         self.cmd
+    }
+
+    /// Which weapon slot the bot wants this tick, or 0xFF for no change.
+    ///
+    /// Bots used to hard-code "no change", so a bot whose primary ran dry
+    /// stood in the open reloading forever with a loaded sidearm on its hip.
+    fn pick_weapon(&mut self, world: &World, now: f64) -> u8 {
+        if now < self.swap_ready_at { return 0xFF; }
+        let Some(me) = world.player(self.slot) else { return 0xFF };
+        let cur = me.cur as usize;
+        let held = &me.weapons[cur];
+
+        let usable = |w: &crate::game::weapons::WeaponSlot| w.ammo > 0 || w.reserve > 0;
+
+        // An empty magazine in someone's face is a pistol, not a reload: a
+        // two-and-a-half second reload loses that fight every time.
+        if held.ammo == 0 && self.can_see_target {
+            if let Some(t) = world.player(self.target) {
+                if (t.mv.pos - me.mv.pos).length() < 20.0 {
+                    for (i, w) in me.weapons.iter().enumerate() {
+                        if i != cur && w.ammo > 0 && w.def().class != WeaponClass::Melee {
+                            self.swap_ready_at = now + 2.0;
+                            return i as u8;
+                        }
+                    }
+                }
+            }
+        }
+
+        // A weapon with rounds left, or rounds to load, is fine where it is.
+        if usable(held) {
+            // Except at knife range with a sniper rifle, where anything else
+            // is better than a scope.
+            if held.def().class == WeaponClass::Sniper && self.can_see_target {
+                if let Some(t) = world.player(self.target) {
+                    if (t.mv.pos - me.mv.pos).length() < 6.0 {
+                        for (i, w) in me.weapons.iter().enumerate() {
+                            if i != cur && usable(w) && w.def().class != WeaponClass::Sniper {
+                                self.swap_ready_at = now + 2.5;
+                                return i as u8;
+                            }
+                        }
+                    }
+                }
+            }
+            return 0xFF;
+        }
+
+        // Dry: take the best of what is left, preferring a real gun.
+        let mut best: Option<(usize, f32)> = None;
+        for (i, w) in me.weapons.iter().enumerate() {
+            if i == cur || !usable(w) { continue; }
+            let score = if w.def().class == WeaponClass::Melee { 0.1 } else { w.ammo as f32 + 1.0 };
+            if best.is_none_or(|(_, b)| score > b) { best = Some((i, score)); }
+        }
+        match best {
+            Some((i, _)) => { self.swap_ready_at = now + 1.2; i as u8 }
+            None => 0xFF,
+        }
     }
 
     /// Called when the bot spawns, to reset transient state.

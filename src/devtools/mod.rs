@@ -379,8 +379,14 @@ pub fn bot_match(map_name: &str, mode_name: &str, seconds: f32, bots: u8, diffic
     let mut step: u32 = 0;
     let trace = std::env::var_os("HARDPOINT_TRACE").is_some();
 
+    let mut census: std::collections::BTreeMap<&'static str, u32> = Default::default();
+    let census_on = std::env::var_os("HARDPOINT_CENSUS").is_some();
+    if census_on { server.event_tap = Some(Vec::new()); }
     for _ in 0..steps {
         server.update(dt);
+        if let Some(tap) = &mut server.event_tap {
+            for e in tap.drain(..) { *census.entry(event_name(&e)).or_insert(0) += 1; }
+        }
         for i in 0..server.world.players.len() {
             let p = &server.world.players[i];
             if p.in_use && p.alive {
@@ -451,6 +457,12 @@ pub fn bot_match(map_name: &str, mode_name: &str, seconds: f32, bots: u8, diffic
     println!();
     println!("  simulated {:.0}s of match in {:.2}s wall ({:.0}x real time)", seconds, wall, seconds / wall.max(0.001));
     println!("  phases    {:?}", phases_seen);
+    if census_on {
+        println!("  events:");
+        for (k, v) in &census {
+            println!("    {:<18} {}", k, v);
+        }
+    }
     println!("  kills {} deaths {}  ({:.1} kills/min/bot)", kills, deaths,
              kills as f32 / (seconds / 60.0) / active.max(1) as f32);
     println!("  bots that moved meaningfully: {}/{}", moved_enough, active);
@@ -603,5 +615,51 @@ pub fn run_tracker(port: u16) -> i32 {
             println!("[{:>6.0}s] {} server(s) registered", clock.now_secs(), tracker.count());
         }
         limiter.wait();
+    }
+}
+
+/// A short name for each event kind, for the `--botmatch` census. A system
+/// that never fires an event during a full match is a system that is not
+/// actually running.
+fn event_name(e: &crate::game::events::GameEvent) -> &'static str {
+    use crate::game::events::GameEvent as G;
+    match e {
+        G::Shot { .. } => "Shot",
+        G::Impact { .. } => "Impact",
+        G::HitPlayer { .. } => "HitPlayer",
+        G::Kill { .. } => "Kill",
+        G::Melee { .. } => "Melee",
+        G::Reload { .. } => "Reload",
+        G::ShellLoaded { .. } => "ShellLoaded",
+        G::Swap { .. } => "Swap",
+        G::DryFire { .. } => "DryFire",
+        G::GrenadeThrown { .. } => "GrenadeThrown",
+        G::GrenadeBounce { .. } => "GrenadeBounce",
+        G::Explosion { .. } => "Explosion",
+        G::Blinded { .. } => "Blinded",
+        G::SmokeStarted { .. } => "SmokeStarted",
+        G::FireStarted { .. } => "FireStarted",
+        G::Footstep { .. } => "Footstep",
+        G::Land { .. } => "Land",
+        G::Jump { .. } => "Jump",
+        G::Spawned { .. } => "Spawned",
+        G::PickupTaken { .. } => "PickupTaken",
+        G::PickupRespawned { .. } => "PickupRespawned",
+        G::CapturePoint { .. } => "CapturePoint",
+        G::CaptureProgress { .. } => "CaptureProgress",
+        G::BombPlanted { .. } => "BombPlanted",
+        G::BombDefused { .. } => "BombDefused",
+        G::BombExploded { .. } => "BombExploded",
+        G::BombPickedUp { .. } => "BombPickedUp",
+        G::BombDropped { .. } => "BombDropped",
+        G::MatchState { .. } => "MatchState",
+        G::RoundStart { .. } => "RoundStart",
+        G::RoundEnd { .. } => "RoundEnd",
+        G::ScoreChanged { .. } => "ScoreChanged",
+        G::Announce { .. } => "Announce",
+        G::Chat { .. } => "Chat",
+        G::PlayerJoined { .. } => "PlayerJoined",
+        G::PlayerLeft { .. } => "PlayerLeft",
+        G::TeamChanged { .. } => "TeamChanged",
     }
 }
