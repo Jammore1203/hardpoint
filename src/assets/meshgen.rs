@@ -9,7 +9,6 @@
 //! whole regions with a handful of comparisons.
 
 use crate::assets::materials::Mat;
-use crate::game::movement;
 use crate::maps::brush::{BrushFlags, BrushKind, FaceMask, RampAxis, TraceMask};
 use crate::maps::{Env, MapData};
 use crate::math::Aabb;
@@ -411,62 +410,117 @@ pub fn unit_quad() -> (Vec<PartVertex>, Vec<u16>) {
 
 // ============================================================ character rig
 
-/// The parts a soldier is built from. Deliberately chunky: the era's models
-/// were boxes with a silhouette, and a strong silhouette is what makes a
-/// target readable at speed.
+/// The parts a soldier is built from.
+///
+/// Chunky on purpose - a strong silhouette is what makes a target readable at
+/// speed - but chunky is not the same as shapeless. Boots, gloves, a vest and
+/// shoulder pads cost four boxes each and are what separate a soldier from a
+/// stack of crates wearing a helmet.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(usize)]
 pub enum Part {
     Hips = 0,
     Torso,
+    Vest,
     Head,
     Helmet,
+    Pack,
+    ShoulderL,
+    ShoulderR,
     ArmUpperL,
     ArmLowerL,
+    GloveL,
     ArmUpperR,
     ArmLowerR,
+    GloveR,
     LegUpperL,
     LegLowerL,
+    BootL,
     LegUpperR,
     LegLowerR,
-    Pack,
-    Weapon,
+    BootR,
+    Holster,
 }
 
-pub const PART_COUNT: usize = 14;
+pub const PART_COUNT: usize = 21;
 
-/// Size of each part in metres, at the standing pose.
-pub const PART_SIZE: [[f32; 3]; PART_COUNT] = [
-    [0.40, 0.20, 0.26], // hips
-    [0.46, 0.52, 0.28], // torso
-    [0.20, 0.20, 0.21], // head
-    [0.25, 0.13, 0.26], // helmet
-    [0.14, 0.30, 0.15], // upper arm L
-    [0.13, 0.30, 0.14], // lower arm L
-    [0.14, 0.30, 0.15], // upper arm R
-    [0.13, 0.30, 0.14], // lower arm R
-    [0.17, 0.40, 0.19], // upper leg L
-    [0.15, 0.40, 0.16], // lower leg L
-    [0.17, 0.40, 0.19], // upper leg R
-    [0.15, 0.40, 0.16], // lower leg R
-    [0.34, 0.30, 0.16], // pack
-    [0.08, 0.14, 0.62], // weapon
+pub const ALL_PARTS: [Part; PART_COUNT] = [
+    Part::Hips, Part::Torso, Part::Vest, Part::Head, Part::Helmet, Part::Pack,
+    Part::ShoulderL, Part::ShoulderR,
+    Part::ArmUpperL, Part::ArmLowerL, Part::GloveL,
+    Part::ArmUpperR, Part::ArmLowerR, Part::GloveR,
+    Part::LegUpperL, Part::LegLowerL, Part::BootL,
+    Part::LegUpperR, Part::LegLowerR, Part::BootR,
+    Part::Holster,
 ];
 
-/// Which texture layer each part uses, by team.
-pub fn part_material(part: Part, team_index: usize) -> Mat {
-    let fatigues = match team_index {
-        1 => Mat::Camo,
-        2 => Mat::CamoDesert,
-        _ => Mat::CamoWinter,
-    };
+/// Size of the parts that are boxes rather than bones, in metres at the
+/// standing pose. Limbs are absent: they are sized from their two endpoints,
+/// which is the only way a limb can be guaranteed to reach what it is holding.
+pub const PART_SIZE: [[f32; 3]; PART_COUNT] = [
+    [0.38, 0.22, 0.25], // hips
+    [0.43, 0.50, 0.27], // torso
+    [0.455, 0.30, 0.30], // vest
+    [0.185, 0.215, 0.20], // head
+    [0.225, 0.135, 0.235], // helmet
+    [0.30, 0.29, 0.15], // pack
+    [0.15, 0.13, 0.24], // shoulder L
+    [0.15, 0.13, 0.24], // shoulder R
+    [0.13, 0.30, 0.14], // upper arm L
+    [0.11, 0.28, 0.12], // lower arm L
+    [0.10, 0.11, 0.13], // glove L
+    [0.13, 0.30, 0.14], // upper arm R
+    [0.11, 0.28, 0.12], // lower arm R
+    [0.10, 0.11, 0.13], // glove R
+    [0.17, 0.42, 0.19], // upper leg L
+    [0.14, 0.40, 0.16], // lower leg L
+    [0.15, 0.11, 0.26], // boot L
+    [0.17, 0.42, 0.19], // upper leg R
+    [0.14, 0.40, 0.16], // lower leg R
+    [0.15, 0.11, 0.26], // boot R
+    [0.11, 0.20, 0.09], // holster
+];
+
+/// What a part is made of and how it should be tinted. Kit stays neutral so
+/// the team colour reads from the fatigues alone rather than turning the whole
+/// model into a colour swatch.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PartLook {
+    Fatigues,
+    Skin,
+    Webbing,
+    Hard,
+    Boots,
+}
+
+pub fn part_look(part: Part) -> PartLook {
     match part {
-        Part::Head => Mat::Fabric,
-        Part::Helmet => Mat::MetalPanel,
-        Part::Pack => Mat::Canvas,
-        Part::Weapon => Mat::MetalPanel,
-        _ => fatigues,
+        Part::Head => PartLook::Skin,
+        Part::Helmet | Part::ShoulderL | Part::ShoulderR => PartLook::Hard,
+        Part::Vest | Part::Pack | Part::Holster => PartLook::Webbing,
+        Part::GloveL | Part::GloveR | Part::BootL | Part::BootR => PartLook::Boots,
+        _ => PartLook::Fatigues,
     }
+}
+
+/// Which texture layer a look uses, by team.
+pub fn look_material(look: PartLook, team_index: usize) -> Mat {
+    match look {
+        PartLook::Fatigues => match team_index {
+            1 => Mat::Camo,
+            2 => Mat::CamoDesert,
+            _ => Mat::CamoWinter,
+        },
+        PartLook::Skin => Mat::Fabric,
+        PartLook::Webbing => Mat::Canvas,
+        PartLook::Hard => Mat::MetalPanel,
+        PartLook::Boots => Mat::Rubber,
+    }
+}
+
+/// Kept for callers that still ask by part.
+pub fn part_material(part: Part, team_index: usize) -> Mat {
+    look_material(part_look(part), team_index)
 }
 
 /// Everything the animator needs to know about a character this frame.
@@ -486,254 +540,557 @@ pub struct PoseInput {
     pub death_time: f32,
     pub firing: f32,
     pub reloading: bool,
+    /// Where the two hands sit on the weapon this character is carrying, in
+    /// weapon-local metres after the per-weapon proportion scale. The rig
+    /// solves the arms to these, so a revolver and a machine gun are held
+    /// differently without either being a special case here.
+    pub grip: Vec3,
+    pub fore: Vec3,
 }
 
-/// Builds the world transform of every part.
+/// A finished pose: every part's world transform, plus where the weapon goes.
+pub struct Pose {
+    pub parts: [Mat4; PART_COUNT],
+    /// Frame the weapon model is drawn in: origin at the grip, -Z down the
+    /// barrel, scaled to metres.
+    pub weapon: Mat4,
+    /// Scale factor the rig was built at, from the stance blend.
+    pub scale: f32,
+}
+
+/// A box spanning two points, `thick_x` wide and `thick_z` deep.
+///
+/// Limbs are built this way rather than from a chain of rotations because the
+/// thing that matters about an arm is where its two ends are: a rotation chain
+/// that is a few degrees off leaves the hand somewhere near the weapon, and
+/// "near" is exactly what reads as broken.
+fn bone(from: Vec3, to: Vec3, thick_x: f32, thick_z: f32, twist_ref: Vec3) -> Mat4 {
+    let d = to - from;
+    let len = d.length();
+    if len < 1e-5 {
+        return Mat4::from_translation(from) * Mat4::from_scale(Vec3::new(thick_x, 1e-4, thick_z));
+    }
+    let y = d / len;
+    let mut x = twist_ref.cross(y);
+    if x.length_squared() < 1e-8 {
+        x = if y.x.abs() < 0.9 { Vec3::X.cross(y) } else { Vec3::Z.cross(y) };
+    }
+    let x = x.normalize();
+    let z = x.cross(y);
+    Mat4::from_cols(
+        (x * thick_x).extend(0.0),
+        (y * len).extend(0.0),
+        (z * thick_z).extend(0.0),
+        (from + d * 0.5).extend(1.0),
+    )
+}
+
+/// Where the joint between two bones of length `upper` and `lower` sits, given
+/// the two ends and which way the joint should break.
+///
+/// Plain two-bone inverse kinematics. The target is pulled inside reach first,
+/// so an arm asked for something it cannot touch straightens toward it instead
+/// of collapsing or producing a NaN.
+fn joint(root: Vec3, target: Vec3, upper: f32, lower: f32, pole: Vec3) -> Vec3 {
+    let to = target - root;
+    let dist = to.length().clamp((upper - lower).abs() + 1e-3, upper + lower - 1e-3);
+    if dist < 1e-4 { return root + pole.normalize_or_zero() * upper; }
+    let dir = to.normalize_or_zero();
+    // Distance along the root-to-target line at which the joint sits.
+    let along = (dist * dist + upper * upper - lower * lower) / (2.0 * dist);
+    let out = (upper * upper - along * along).max(0.0).sqrt();
+    // The bend direction: the pole, with anything along the limb removed.
+    let mut side = pole - dir * pole.dot(dir);
+    if side.length_squared() < 1e-8 {
+        side = if dir.y.abs() < 0.9 { Vec3::Y.cross(dir) } else { Vec3::X.cross(dir) };
+    }
+    root + dir * along + side.normalize_or_zero() * out
+}
+
+/// Builds the world transform of every part, and of the weapon in their hands.
 ///
 /// This is a procedural animator rather than a set of clips: a walk cycle
-/// driven by stride phase, a lean driven by speed, an aim driven by pitch. It
-/// costs a few dozen multiplications per character and never needs an artist.
-pub fn pose_character(input: &PoseInput, origin: Vec3) -> [Mat4; PART_COUNT] {
+/// driven by stride phase, a lean driven by speed, a weapon carried on the aim
+/// line and arms solved to reach it. It costs a few dozen multiplications per
+/// character and never needs an artist.
+pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
     let mut out = [Mat4::IDENTITY; PART_COUNT];
 
-    let stand = movement::tune::RADIUS;
-    let _ = stand;
     // Scale the whole rig to the current collision height so crouching and
     // going prone shrink the model exactly as much as the hitbox.
-    let scale = (input.height / 1.78).clamp(0.34, 1.05);
-    let crouch = 1.0 - scale;
+    let s = (input.height / 1.78).clamp(0.34, 1.05);
+    let crouch = (1.0 - s).clamp(0.0, 1.0);
 
-    let body_yaw = input.yaw;
     let run = (input.speed / 8.0).clamp(0.0, 1.0);
-    let bob = (input.phase * 2.0).sin() * 0.035 * run;
-    let lean = run * 0.16;
+    let bob = (input.phase * 2.0).sin() * 0.030 * run;
+    // A running soldier leans into it. Negative X rotation tips the model's
+    // forward axis - which is -Z - downward.
+    let lean = -run * 0.17;
 
-    // Collapse on death: sink and topple rather than animate a ragdoll.
     let (death_sink, death_tilt) = if input.dead {
         let t = (input.death_time / 0.6).clamp(0.0, 1.0);
-        (t * 0.55 * scale, t * std::f32::consts::FRAC_PI_2 * 0.92)
+        (t * 0.52 * s, t * std::f32::consts::FRAC_PI_2 * 0.92)
     } else {
         (0.0, 0.0)
     };
 
     let root = Mat4::from_translation(origin + Vec3::Y * (bob - death_sink))
-        * Mat4::from_rotation_y(body_yaw)
-        * Mat4::from_rotation_x(-lean + death_tilt);
+        * Mat4::from_rotation_y(input.yaw)
+        * Mat4::from_rotation_x(lean - death_tilt);
 
-    let place = |m: &Mat4, part: Part, offset: Vec3, rot: Vec3| -> Mat4 {
-        let size = PART_SIZE[part as usize];
-        *m * Mat4::from_translation(offset * scale)
-            * Mat4::from_euler(glam::EulerRot::XYZ, rot.x, rot.y, rot.z)
-            * Mat4::from_scale(Vec3::new(size[0], size[1], size[2]) * scale)
+    // ------------------------------------------------------------ skeleton
+    // Heights are in rig-local metres before the stance scale.
+    let hip_y = 0.90;
+    let chest_y = hip_y + 0.30;
+    let shoulder_y = hip_y + 0.46;
+    let neck_y = hip_y + 0.58;
+
+    let at = |x: f32, y: f32, z: f32| -> Vec3 {
+        root.transform_point3(Vec3::new(x * s, y * s, z * s))
     };
 
-    // Hips sit at the top of the legs; everything hangs from them.
-    let hip_y = 0.86;
-    out[Part::Hips as usize] = place(&root, Part::Hips, Vec3::new(0.0, hip_y, 0.0), Vec3::ZERO);
-
-    // The torso leans with the aim, which sells looking up and down.
-    let spine_pitch = -input.pitch * 0.35;
+    // The torso pitches with the aim, but only partly: the rest is taken up by
+    // the arms, which is both how a person does it and what keeps the head
+    // from swinging through the chest at extreme angles.
+    let spine = input.pitch * 0.30;
     let torso_m = root
-        * Mat4::from_translation(Vec3::new(0.0, (hip_y + 0.34) * scale, 0.0))
-        * Mat4::from_rotation_x(spine_pitch);
-    out[Part::Torso as usize] = torso_m * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Torso as usize]) * scale);
+        * Mat4::from_translation(Vec3::new(0.0, chest_y * s, 0.0))
+        * Mat4::from_rotation_x(spine);
+    let torso_pt = |x: f32, y: f32, z: f32| -> Vec3 {
+        torso_m.transform_point3(Vec3::new(x * s, y * s, z * s))
+    };
 
-    let head_m = torso_m
-        * Mat4::from_translation(Vec3::new(0.0, 0.36 * scale, 0.0))
-        * Mat4::from_rotation_x(-input.pitch * 0.55);
-    out[Part::Head as usize] = head_m * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Head as usize]) * scale);
-    out[Part::Helmet as usize] = head_m
-        * Mat4::from_translation(Vec3::new(0.0, 0.10 * scale, -0.01 * scale))
-        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Helmet as usize]) * scale);
+    out[Part::Hips as usize] = Mat4::from_translation(at(0.0, hip_y, 0.0))
+        * Mat4::from_rotation_y(input.yaw)
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Hips as usize]) * s);
+    out[Part::Torso as usize] = torso_m
+        * Mat4::from_translation(Vec3::new(0.0, 0.05 * s, 0.0))
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Torso as usize]) * s);
+    // The vest sits proud of the chest, slightly forward and a little short,
+    // so it reads as worn rather than as a wider torso.
+    out[Part::Vest as usize] = torso_m
+        * Mat4::from_translation(Vec3::new(0.0, 0.02 * s, -0.012 * s))
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Vest as usize]) * s);
     out[Part::Pack as usize] = torso_m
-        * Mat4::from_translation(Vec3::new(0.0, 0.02 * scale, 0.20 * scale))
-        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Pack as usize]) * scale);
+        * Mat4::from_translation(Vec3::new(0.0, 0.02 * s, 0.20 * s))
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Pack as usize]) * s);
 
-    // Legs: opposed swing, with the knee bending on the return stroke.
-    let swing = input.phase.sin() * 0.85 * run;
-    let swing_b = (input.phase + std::f32::consts::PI).sin() * 0.85 * run;
-    let knee = |s: f32| (s.max(0.0)) * 0.9;
-    let air = if input.grounded { 0.0 } else { 0.5 };
+    // Head: the remainder of the aim, so looking up raises the face.
+    let head_m = root
+        * Mat4::from_translation(Vec3::new(0.0, neck_y * s, 0.0))
+        * Mat4::from_rotation_x(input.pitch * 0.62);
+    out[Part::Head as usize] = head_m
+        * Mat4::from_translation(Vec3::new(0.0, 0.045 * s, 0.0))
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Head as usize]) * s);
+    out[Part::Helmet as usize] = head_m
+        * Mat4::from_translation(Vec3::new(0.0, 0.145 * s, 0.008 * s))
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Helmet as usize]) * s);
 
-    for (side, upper, lower, s) in [
-        (-1.0f32, Part::LegUpperL, Part::LegLowerL, swing),
-        (1.0, Part::LegUpperR, Part::LegLowerR, swing_b),
-    ] {
-        let hip = root
-            * Mat4::from_translation(Vec3::new(side * 0.12 * scale, (hip_y - 0.10) * scale, 0.0))
-            * Mat4::from_rotation_x(s * 0.5 + air + crouch * 0.9);
-        out[upper as usize] = hip
-            * Mat4::from_translation(Vec3::new(0.0, -0.20 * scale, 0.0))
-            * Mat4::from_scale(Vec3::from(PART_SIZE[upper as usize]) * scale);
-        let knee_m = hip
-            * Mat4::from_translation(Vec3::new(0.0, -0.40 * scale, 0.0))
-            * Mat4::from_rotation_x(-knee(s) - air * 0.8 - crouch * 1.5);
-        out[lower as usize] = knee_m
-            * Mat4::from_translation(Vec3::new(0.0, -0.20 * scale, 0.0))
-            * Mat4::from_scale(Vec3::from(PART_SIZE[lower as usize]) * scale);
+    for (side, part) in [(-1.0f32, Part::ShoulderL), (1.0, Part::ShoulderR)] {
+        out[part as usize] = torso_m
+            * Mat4::from_translation(Vec3::new(side * 0.235 * s, 0.155 * s, 0.0))
+            * Mat4::from_rotation_z(side * 0.24)
+            * Mat4::from_scale(Vec3::from(PART_SIZE[part as usize]) * s);
     }
 
-    // Arms: the right hand holds the weapon and follows the aim; the left
-    // supports it. Both add a little counter-swing while running.
-    let arm_swing = input.phase.sin() * 0.4 * run;
-    let recoil = input.firing * 0.35;
-    let reload_dip = if input.reloading { 0.55 } else { 0.0 };
+    out[Part::Holster as usize] = root
+        * Mat4::from_translation(Vec3::new(0.20 * s, (hip_y - 0.14) * s, 0.03 * s))
+        * Mat4::from_rotation_z(0.18)
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Holster as usize]) * s);
 
-    let shoulder_r = torso_m
-        * Mat4::from_translation(Vec3::new(0.28 * scale, 0.16 * scale, 0.0))
-        * Mat4::from_euler(glam::EulerRot::XYZ, -1.15 + recoil + reload_dip - arm_swing * 0.3, 0.25, -0.15);
-    out[Part::ArmUpperR as usize] = shoulder_r
-        * Mat4::from_translation(Vec3::new(0.0, -0.15 * scale, 0.0))
-        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::ArmUpperR as usize]) * scale);
-    let elbow_r = shoulder_r
-        * Mat4::from_translation(Vec3::new(0.0, -0.30 * scale, 0.0))
-        * Mat4::from_rotation_x(-0.55 - reload_dip * 0.5);
-    out[Part::ArmLowerR as usize] = elbow_r
-        * Mat4::from_translation(Vec3::new(0.0, -0.15 * scale, 0.0))
-        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::ArmLowerR as usize]) * scale);
+    // ---------------------------------------------------------------- legs
+    // Opposed swing, with the knee breaking forward on the return stroke and
+    // both knees bent by the crouch blend.
+    let stride = input.phase.sin() * 0.62 * run;
+    let air = if input.grounded { 0.0 } else { 0.35 };
+    let up = root.transform_vector3(Vec3::Y);
+    let fwd = root.transform_vector3(-Vec3::Z);
 
-    let shoulder_l = torso_m
-        * Mat4::from_translation(Vec3::new(-0.28 * scale, 0.16 * scale, 0.0))
-        * Mat4::from_euler(glam::EulerRot::XYZ, -1.35 + recoil * 0.6 + reload_dip * 1.4 + arm_swing * 0.3, -0.35, 0.20);
-    out[Part::ArmUpperL as usize] = shoulder_l
-        * Mat4::from_translation(Vec3::new(0.0, -0.15 * scale, 0.0))
-        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::ArmUpperL as usize]) * scale);
-    let elbow_l = shoulder_l
-        * Mat4::from_translation(Vec3::new(0.0, -0.30 * scale, 0.0))
-        * Mat4::from_rotation_x(-0.75);
-    out[Part::ArmLowerL as usize] = elbow_l
-        * Mat4::from_translation(Vec3::new(0.0, -0.15 * scale, 0.0))
-        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::ArmLowerL as usize]) * scale);
+    let thigh = 0.44 * s;
+    let shin = 0.44 * s;
+    for (side, swing, upper, lower, boot) in [
+        (-1.0f32, stride, Part::LegUpperL, Part::LegLowerL, Part::BootL),
+        (1.0, -stride, Part::LegUpperR, Part::LegLowerR, Part::BootR),
+    ] {
+        let hip = at(side * 0.11, hip_y - 0.06, 0.0);
+        // Foot placement drives the leg, so feet land where they look like
+        // they land instead of floating a hand's width above the ground.
+        let lift = (swing.max(0.0)) * 0.20 * s + air * 0.12 * s;
+        let reach = swing * 0.34 * s;
+        let squat = (crouch * 0.34 + air * 0.10) * s;
+        let ankle = hip + fwd * reach - up * ((thigh + shin) * 0.94 - lift - squat);
+        // Knees break forward, and outward a little so they never cross.
+        let pole = (fwd + up * 0.10 + root.transform_vector3(Vec3::X) * (side * 0.20)).normalize();
+        let knee = joint(hip, ankle, thigh, shin, pole);
 
-    // The weapon hangs off the right hand.
-    out[Part::Weapon as usize] = elbow_r
-        * Mat4::from_translation(Vec3::new(0.0, -0.30 * scale, -0.16 * scale))
-        * Mat4::from_rotation_x(1.15)
-        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Weapon as usize]) * scale);
+        out[upper as usize] = bone(hip, knee, PART_SIZE[upper as usize][0] * s, PART_SIZE[upper as usize][2] * s, fwd);
+        out[lower as usize] = bone(knee, ankle, PART_SIZE[lower as usize][0] * s, PART_SIZE[lower as usize][2] * s, fwd);
+        // The boot is level with the ground, not with the shin.
+        let toe = (ankle - knee).normalize_or_zero() * 0.0;
+        let _ = toe;
+        out[boot as usize] = Mat4::from_translation(ankle - up * (0.04 * s) + fwd * (0.05 * s))
+            * Mat4::from_rotation_y(input.yaw)
+            * Mat4::from_scale(Vec3::from(PART_SIZE[boot as usize]) * s);
+    }
 
-    out
+    // -------------------------------------------------------------- weapon
+    // The weapon is placed first and the arms are solved to it. Doing it the
+    // other way - rotating a shoulder, then an elbow, then hanging a gun off
+    // the end - is what left the model holding a rifle sideways across its
+    // chest with both elbows out.
+    let aim = root
+        * Mat4::from_translation(Vec3::new(0.0, shoulder_y * s, 0.0))
+        * Mat4::from_rotation_x(input.pitch - spine * 0.0);
+
+    let recoil = input.firing;
+    let reload = if input.reloading { 1.0 } else { 0.0 };
+    // Carried across the body at the ready: right of centre, just under the
+    // eye line, muzzle forward.
+    let carry = Vec3::new(0.085, -0.155 - reload * 0.12 - run * 0.05, -0.20 + recoil * 0.045);
+    let weapon = aim
+        * Mat4::from_translation(carry * s)
+        * Mat4::from_rotation_x(recoil * 0.22 + reload * 0.45 + run * 0.10)
+        * Mat4::from_rotation_z(reload * 0.30 - 0.04)
+        * Mat4::from_scale(Vec3::splat(s));
+
+    // ---------------------------------------------------------------- arms
+    let upper_arm = 0.31 * s;
+    let fore_arm = 0.29 * s;
+    // Grip and handguard in weapon-local metres; the weapon models put the
+    // grip at the origin and run forward along -Z.
+    let grip = weapon.transform_point3(input.grip);
+    let fore = weapon.transform_point3(input.fore);
+
+    let right = root.transform_vector3(Vec3::X);
+    for (side, hand, upper, lower, glove) in [
+        (1.0f32, grip, Part::ArmUpperR, Part::ArmLowerR, Part::GloveR),
+        (-1.0, fore, Part::ArmUpperL, Part::ArmLowerL, Part::GloveL),
+    ] {
+        let shoulder = torso_pt(side * 0.225, 0.145, 0.0);
+        // Elbows break down and away from the body.
+        let pole = (-up * 1.0 + right * (side * 0.75) - fwd * 0.30).normalize();
+        let elbow = joint(shoulder, hand, upper_arm, fore_arm, pole);
+        out[upper as usize] = bone(shoulder, elbow, PART_SIZE[upper as usize][0] * s, PART_SIZE[upper as usize][2] * s, fwd);
+        out[lower as usize] = bone(elbow, hand, PART_SIZE[lower as usize][0] * s, PART_SIZE[lower as usize][2] * s, fwd);
+        out[glove as usize] = Mat4::from_translation(hand)
+            * Mat4::from_rotation_y(input.yaw)
+            * Mat4::from_rotation_x(input.pitch * 0.5)
+            * Mat4::from_scale(Vec3::from(PART_SIZE[glove as usize]) * s);
+    }
+
+    Pose { parts: out, weapon, scale: s }
 }
 
 /// Approximate world position of a character's muzzle, for effects.
-pub fn muzzle_position(pose: &[Mat4; PART_COUNT]) -> Vec3 {
-    let m = pose[Part::Weapon as usize];
-    (m * glam::Vec4::new(0.0, 0.0, -0.55, 1.0)).truncate()
+pub fn muzzle_position(pose: &Pose) -> Vec3 {
+    pose.weapon.transform_point3(Vec3::new(0.0, 0.0, -0.62))
 }
 
 // ============================================================ weapon models
 
 /// One box of a weapon model, in weapon-local space where -Z is forward and
-/// the origin sits at the grip.
+/// the origin sits between the hands.
+///
+/// The rotation is what buys the silhouette: a magazine canted forward, a
+/// pistol grip raked back, a scope ring standing proud. Axis-aligned boxes
+/// alone can only ever describe a brick with smaller bricks stuck to it, and
+/// that is what these models used to look like.
 #[derive(Copy, Clone, Debug)]
 pub struct WeaponPart {
     pub offset: Vec3,
     pub size: Vec3,
+    /// Euler XYZ in radians, applied about the part's own centre.
+    pub rot: Vec3,
     pub mat: Mat,
 }
 
 const fn wp(x: f32, y: f32, z: f32, sx: f32, sy: f32, sz: f32, mat: Mat) -> WeaponPart {
-    WeaponPart { offset: Vec3::new(x, y, z), size: Vec3::new(sx, sy, sz), mat }
+    WeaponPart { offset: Vec3::new(x, y, z), size: Vec3::new(sx, sy, sz), rot: Vec3::ZERO, mat }
 }
 
-/// The boxes that make up each weapon silhouette.
+/// The same, tilted about X (the usual case: rake and cant).
+const fn wpx(x: f32, y: f32, z: f32, sx: f32, sy: f32, sz: f32, rx: f32, mat: Mat) -> WeaponPart {
+    WeaponPart { offset: Vec3::new(x, y, z), size: Vec3::new(sx, sy, sz), rot: Vec3::new(rx, 0.0, 0.0), mat }
+}
+
+/// A weapon silhouette, plus the three points anything else needs from it:
+/// where each hand goes and where the flash comes out.
 ///
-/// Ten shapes cover twenty-five weapons; proportions are then varied per
-/// weapon from its own stats, which is exactly how the era got a full armoury
-/// out of a handful of meshes.
+/// These used to be inferred - firing hand on the lowest box, support hand on
+/// the most forward one - which is a reasonable guess for a rifle and quite
+/// wrong for a revolver, whose lowest box is the grip's bottom edge and whose
+/// most forward box is the barrel.
+pub struct WeaponModel {
+    pub parts: &'static [WeaponPart],
+    pub grip: Vec3,
+    pub fore: Vec3,
+    pub muzzle: Vec3,
+}
+
 use crate::game::weapons::ModelShape;
 use Mat::*;
 
-const RIFLE: [WeaponPart; 7] = [
-            wp(0.0, 0.0, -0.10, 0.05, 0.09, 0.52, MetalPanel),   // receiver
-            wp(0.0, -0.01, -0.44, 0.032, 0.032, 0.30, PipeMetal), // barrel
-            wp(0.0, 0.055, -0.16, 0.028, 0.030, 0.22, MetalPanel), // rail
-            wp(0.0, 0.085, -0.02, 0.022, 0.035, 0.07, MetalPanel), // rear sight
-            wp(0.0, -0.09, -0.02, 0.045, 0.13, 0.06, Rubber),      // grip
-            wp(0.0, -0.075, -0.10, 0.042, 0.10, 0.10, MetalRust),  // magazine
-            wp(0.0, -0.005, 0.19, 0.05, 0.085, 0.20, Rubber),      // stock
-];
-const BULLPUP: [WeaponPart; 5] = [
-            wp(0.0, 0.0, -0.02, 0.055, 0.10, 0.48, MetalPanel),
-            wp(0.0, -0.005, -0.40, 0.030, 0.030, 0.26, PipeMetal),
-            wp(0.0, 0.07, -0.06, 0.026, 0.035, 0.30, MetalPanel),
-            wp(0.0, -0.085, -0.16, 0.042, 0.12, 0.055, Rubber),
-            wp(0.0, -0.06, 0.10, 0.042, 0.09, 0.11, MetalRust),
-];
-const SMG: [WeaponPart; 6] = [
-            wp(0.0, 0.0, -0.06, 0.048, 0.085, 0.34, MetalPanel),
-            wp(0.0, -0.005, -0.28, 0.026, 0.026, 0.16, PipeMetal),
-            wp(0.0, 0.055, -0.06, 0.022, 0.026, 0.16, MetalPanel),
-            wp(0.0, -0.085, -0.02, 0.040, 0.12, 0.05, Rubber),
-            wp(0.0, -0.10, -0.09, 0.036, 0.16, 0.06, MetalRust),
-            wp(0.0, 0.0, 0.14, 0.03, 0.05, 0.12, PipeMetal),
-];
-const SHOTGUN: [WeaponPart; 6] = [
-            wp(0.0, 0.0, -0.10, 0.055, 0.075, 0.50, WoodPlank),
-            wp(0.0, 0.012, -0.46, 0.040, 0.040, 0.32, PipeMetal),
-            wp(0.0, -0.032, -0.40, 0.036, 0.036, 0.28, MetalPanel),  // tube
-            wp(0.0, -0.035, -0.28, 0.062, 0.055, 0.14, WoodPlank),   // pump
-            wp(0.0, -0.085, 0.0, 0.045, 0.12, 0.06, WoodPlank),
-            wp(0.0, -0.01, 0.21, 0.05, 0.10, 0.22, WoodPlank),
-];
-const SNIPER: [WeaponPart; 7] = [
-            wp(0.0, 0.0, -0.06, 0.05, 0.085, 0.62, MetalPanel),
-            wp(0.0, -0.005, -0.56, 0.030, 0.030, 0.44, PipeMetal),
-            wp(0.0, 0.095, -0.14, 0.05, 0.05, 0.30, MetalPanel),     // scope
-            wp(0.0, 0.095, -0.30, 0.062, 0.062, 0.05, ControlPanel), // objective
-            wp(0.0, -0.09, 0.02, 0.045, 0.13, 0.06, Rubber),
-            wp(0.0, -0.06, -0.06, 0.040, 0.08, 0.09, MetalRust),
-            wp(0.0, -0.01, 0.28, 0.055, 0.10, 0.26, WoodPlank),
-];
-const LMG: [WeaponPart; 7] = [
-            wp(0.0, 0.0, -0.08, 0.07, 0.11, 0.58, MetalPanel),
-            wp(0.0, 0.0, -0.50, 0.038, 0.038, 0.36, PipeMetal),
-            wp(0.0, 0.075, -0.12, 0.030, 0.030, 0.34, MetalPanel),
-            wp(0.0, -0.10, -0.14, 0.10, 0.14, 0.16, MetalRust),      // drum
-            wp(0.0, -0.095, 0.04, 0.048, 0.13, 0.06, Rubber),
-            wp(0.0, -0.01, 0.26, 0.055, 0.10, 0.22, Rubber),
-            wp(0.0, -0.075, -0.42, 0.09, 0.09, 0.05, PipeMetal),     // bipod
-];
-const PISTOL_SMALL: [WeaponPart; 3] = [
-            wp(0.0, 0.0, -0.06, 0.034, 0.070, 0.20, MetalPanel),
-            wp(0.0, -0.09, 0.02, 0.036, 0.13, 0.05, Rubber),
-            wp(0.0, -0.05, 0.01, 0.030, 0.08, 0.035, MetalRust),
-];
-const PISTOL_HEAVY: [WeaponPart; 4] = [
-            wp(0.0, 0.0, -0.08, 0.042, 0.085, 0.26, MetalPanel),
-            wp(0.0, -0.02, -0.20, 0.030, 0.030, 0.12, PipeMetal),
-            wp(0.0, -0.10, 0.02, 0.042, 0.15, 0.055, WoodPlank),
-            wp(0.0, -0.035, -0.04, 0.058, 0.058, 0.07, MetalRust),   // cylinder
-];
-const KNIFE: [WeaponPart; 2] = [
-            wp(0.0, 0.0, -0.14, 0.012, 0.038, 0.20, MetalPlateDiamond),
-            wp(0.0, 0.0, 0.02, 0.028, 0.032, 0.11, Rubber),
-];
-const SPADE: [WeaponPart; 2] = [
-            wp(0.0, 0.0, -0.20, 0.11, 0.02, 0.15, MetalRust),
-            wp(0.0, 0.0, -0.02, 0.022, 0.022, 0.30, WoodPlank),
+// Assault rifle: separate upper and lower, free-floating handguard, flat-top
+// rail, collapsible stock on a buffer tube.
+const RIFLE: [WeaponPart; 18] = [
+    wp(0.0, 0.014, -0.07, 0.050, 0.064, 0.34, MetalPanel),      // upper receiver
+    wp(0.0, -0.040, 0.015, 0.046, 0.058, 0.15, MetalPanel),     // lower receiver
+    wp(0.0, 0.006, -0.31, 0.054, 0.058, 0.23, MetalPanel),      // handguard
+    wp(0.0, 0.006, -0.49, 0.019, 0.019, 0.20, PipeMetal),       // barrel
+    wp(0.0, 0.006, -0.615, 0.029, 0.029, 0.055, MetalRust),     // muzzle brake
+    wp(0.0, 0.032, -0.43, 0.029, 0.030, 0.048, PipeMetal),      // gas block
+    wp(0.0, 0.051, -0.17, 0.030, 0.014, 0.40, MetalPlateDiamond), // top rail
+    wp(0.0, 0.076, 0.02, 0.026, 0.030, 0.032, MetalPanel),      // rear sight
+    wp(0.0, 0.072, -0.45, 0.014, 0.036, 0.020, MetalPanel),     // front post
+    wp(0.026, 0.052, 0.115, 0.022, 0.015, 0.085, MetalPanel),   // charging handle
+    wp(0.029, 0.020, -0.02, 0.008, 0.030, 0.095, MetalRust),    // ejection port
+    wpx(0.0, -0.145, 0.010, 0.038, 0.185, 0.072, -0.16, MetalRust), // magazine
+    wpx(0.0, -0.112, 0.088, 0.040, 0.150, 0.052, 0.34, Rubber), // pistol grip
+    wp(0.0, -0.056, 0.048, 0.030, 0.010, 0.052, MetalPanel),    // trigger guard
+    wp(0.0, -0.038, 0.052, 0.012, 0.026, 0.012, MetalPlateDiamond), // trigger
+    wp(0.0, 0.014, 0.155, 0.031, 0.031, 0.13, PipeMetal),       // buffer tube
+    wp(0.0, 0.006, 0.235, 0.042, 0.082, 0.13, MetalPanel),      // stock
+    wp(0.0, 0.002, 0.305, 0.046, 0.094, 0.022, Tire),           // butt pad
 ];
 
-pub fn weapon_parts(shape: ModelShape) -> &'static [WeaponPart] {
+// Bullpup: the whole action sits behind the grip, so the same barrel length
+// comes in a much shorter weapon.
+const BULLPUP: [WeaponPart; 15] = [
+    wp(0.0, 0.012, 0.04, 0.056, 0.090, 0.40, MetalPanel),       // body shell
+    wp(0.0, 0.010, -0.24, 0.048, 0.056, 0.20, MetalPanel),      // handguard
+    wp(0.0, 0.010, -0.41, 0.019, 0.019, 0.17, PipeMetal),       // barrel
+    wp(0.0, 0.010, -0.515, 0.027, 0.027, 0.05, MetalRust),      // flash hider
+    wp(0.0, 0.058, -0.10, 0.028, 0.014, 0.44, MetalPlateDiamond), // rail
+    wp(0.0, 0.086, -0.06, 0.048, 0.044, 0.16, MetalPanel),      // optic body
+    wp(0.0, 0.086, -0.145, 0.052, 0.052, 0.022, ControlPanel),  // objective
+    wp(0.0, 0.086, 0.028, 0.046, 0.046, 0.020, Glass),          // eyepiece
+    wpx(0.0, -0.125, 0.145, 0.040, 0.150, 0.070, -0.12, MetalRust), // magazine
+    wpx(0.0, -0.100, -0.055, 0.038, 0.135, 0.050, 0.30, Rubber), // grip
+    wp(0.0, -0.048, -0.095, 0.028, 0.010, 0.050, MetalPanel),   // trigger guard
+    wp(0.0, -0.030, 0.10, 0.052, 0.030, 0.12, MetalPanel),      // magwell shoulder
+    wp(0.0, 0.006, 0.255, 0.052, 0.095, 0.03, Tire),            // butt pad
+    wp(0.026, 0.040, 0.10, 0.010, 0.026, 0.07, MetalRust),      // ejection port
+    wp(0.0, -0.028, -0.34, 0.024, 0.026, 0.05, MetalPanel),     // sling loop
+];
+
+// Submachine gun: short, blocky, folding stock, magazine through the grip.
+const SMG: [WeaponPart; 14] = [
+    wp(0.0, 0.012, -0.06, 0.048, 0.070, 0.28, MetalPanel),      // receiver
+    wp(0.0, 0.012, -0.235, 0.036, 0.040, 0.10, MetalPanel),     // barrel shroud
+    wp(0.0, 0.012, -0.315, 0.017, 0.017, 0.09, PipeMetal),      // barrel
+    wp(0.0, 0.048, -0.10, 0.026, 0.013, 0.28, MetalPlateDiamond), // rail
+    wp(0.0, 0.070, -0.005, 0.024, 0.028, 0.028, MetalPanel),    // rear sight
+    wp(0.0, 0.066, -0.245, 0.013, 0.030, 0.018, MetalPanel),    // front sight
+    wpx(0.0, -0.135, 0.005, 0.034, 0.185, 0.056, -0.10, MetalRust), // magazine
+    wpx(0.0, -0.098, 0.062, 0.038, 0.130, 0.048, 0.28, Rubber), // grip
+    wp(0.0, -0.050, 0.030, 0.028, 0.010, 0.048, MetalPanel),    // trigger guard
+    wpx(0.0, -0.030, -0.175, 0.030, 0.090, 0.042, -0.22, Rubber), // foregrip
+    wp(0.024, 0.030, 0.02, 0.010, 0.026, 0.075, MetalRust),     // ejection port
+    wp(0.0, 0.014, 0.115, 0.026, 0.026, 0.09, PipeMetal),       // stock strut
+    wp(0.0, 0.012, 0.185, 0.044, 0.070, 0.024, Tire),           // butt plate
+    wp(0.0, 0.040, 0.09, 0.018, 0.014, 0.06, MetalPanel),       // charging handle
+];
+
+// Pump shotgun: wooden furniture, a magazine tube slung under the barrel.
+const SHOTGUN: [WeaponPart; 13] = [
+    wp(0.0, 0.000, -0.05, 0.052, 0.078, 0.26, MetalPanel),      // receiver
+    wp(0.0, 0.022, -0.36, 0.032, 0.032, 0.38, PipeMetal),       // barrel
+    wp(0.0, -0.026, -0.32, 0.028, 0.028, 0.30, MetalPanel),     // magazine tube
+    wp(0.0, -0.024, -0.235, 0.058, 0.052, 0.13, WoodPlank),     // pump
+    wp(0.0, 0.048, -0.05, 0.022, 0.014, 0.10, MetalPlateDiamond), // rib
+    wp(0.0, 0.046, -0.535, 0.012, 0.020, 0.014, MetalRust),     // bead sight
+    wp(0.0, -0.052, 0.045, 0.024, 0.010, 0.050, MetalPanel),    // trigger guard
+    wpx(0.0, -0.086, 0.085, 0.044, 0.115, 0.055, 0.38, WoodPlank), // grip
+    wp(0.0, 0.006, 0.175, 0.048, 0.092, 0.16, WoodPlank),       // stock
+    wp(0.0, -0.008, 0.262, 0.050, 0.100, 0.024, Tire),          // butt pad
+    wp(0.026, 0.000, -0.005, 0.010, 0.030, 0.09, MetalRust),    // ejection port
+    wp(0.0, -0.046, -0.06, 0.030, 0.020, 0.08, MetalPanel),     // loading gate
+    wp(0.0, -0.006, -0.50, 0.030, 0.026, 0.05, MetalRust),      // choke
+];
+
+// Bolt rifle: long heavy barrel, big glass, bipod, cheek riser.
+const SNIPER: [WeaponPart; 17] = [
+    wp(0.0, 0.006, -0.04, 0.048, 0.070, 0.34, MetalPanel),      // action
+    wp(0.0, 0.006, -0.40, 0.023, 0.023, 0.40, PipeMetal),       // barrel
+    wp(0.0, 0.006, -0.635, 0.032, 0.032, 0.07, MetalRust),      // muzzle brake
+    wp(0.0, 0.048, -0.10, 0.030, 0.014, 0.34, MetalPlateDiamond), // rail
+    wp(0.0, 0.098, -0.10, 0.052, 0.052, 0.30, MetalPanel),      // scope tube
+    wp(0.0, 0.098, -0.265, 0.062, 0.062, 0.045, ControlPanel),  // objective bell
+    wp(0.0, 0.098, 0.058, 0.056, 0.056, 0.030, Glass),          // eyepiece
+    wp(0.0, 0.098, -0.13, 0.058, 0.058, 0.028, MetalRust),      // elevation turret
+    wp(0.0, 0.074, -0.16, 0.026, 0.036, 0.026, MetalPanel),     // front ring
+    wp(0.0, 0.074, -0.03, 0.026, 0.036, 0.026, MetalPanel),     // rear ring
+    wp(0.030, 0.014, 0.05, 0.030, 0.016, 0.016, MetalPlateDiamond), // bolt handle
+    wpx(0.0, -0.118, 0.005, 0.036, 0.130, 0.062, -0.14, MetalRust), // magazine
+    wpx(0.0, -0.106, 0.095, 0.042, 0.140, 0.052, 0.32, Rubber), // grip
+    wp(0.0, -0.052, 0.055, 0.028, 0.010, 0.050, MetalPanel),    // trigger guard
+    wp(0.0, 0.030, 0.215, 0.048, 0.062, 0.16, WoodPlank),       // cheek riser
+    wp(0.0, -0.020, 0.240, 0.046, 0.090, 0.12, WoodPlank),      // butt stock
+    wpx(0.0, -0.075, -0.48, 0.090, 0.075, 0.016, 0.0, PipeMetal), // folded bipod
+];
+
+// Light machine gun: box magazine, carry handle, heavy barrel, bipod.
+const LMG: [WeaponPart; 16] = [
+    wp(0.0, 0.010, -0.05, 0.062, 0.098, 0.36, MetalPanel),      // receiver
+    wp(0.0, 0.010, -0.40, 0.026, 0.026, 0.36, PipeMetal),       // barrel
+    wp(0.0, 0.010, -0.605, 0.036, 0.036, 0.06, MetalRust),      // flash hider
+    wp(0.0, 0.048, -0.34, 0.034, 0.048, 0.20, MetalPlateDiamond), // heat shield
+    wp(0.0, 0.078, 0.02, 0.028, 0.030, 0.032, MetalPanel),      // rear sight
+    wp(0.0, 0.074, -0.44, 0.014, 0.040, 0.020, MetalPanel),     // front post
+    wp(0.0, 0.084, -0.16, 0.028, 0.026, 0.16, PipeMetal),       // carry handle
+    wp(0.0, -0.128, -0.02, 0.098, 0.150, 0.170, MetalRust),     // ammunition box
+    wp(0.0, -0.128, -0.108, 0.086, 0.120, 0.010, HazardStripe), // box latch
+    wpx(0.0, -0.112, 0.105, 0.044, 0.150, 0.055, 0.32, Rubber), // grip
+    wp(0.0, -0.056, 0.062, 0.032, 0.011, 0.055, MetalPanel),    // trigger guard
+    wp(0.0, 0.010, 0.205, 0.050, 0.096, 0.16, MetalPanel),      // stock
+    wp(0.0, 0.004, 0.292, 0.052, 0.104, 0.024, Tire),           // butt pad
+    wp(0.0, -0.070, -0.46, 0.110, 0.086, 0.018, PipeMetal),     // bipod legs
+    wp(0.0, -0.030, -0.46, 0.030, 0.040, 0.030, MetalPanel),    // bipod mount
+    wp(0.028, 0.024, -0.02, 0.012, 0.034, 0.10, MetalRust),     // feed cover
+];
+
+// Service pistol.
+const PISTOL_SMALL: [WeaponPart; 9] = [
+    wp(0.0, 0.028, -0.075, 0.032, 0.046, 0.185, MetalPanel),    // slide
+    wp(0.0, 0.052, -0.075, 0.014, 0.008, 0.175, MetalPlateDiamond), // slide serration rib
+    wp(0.0, 0.044, -0.155, 0.012, 0.016, 0.014, MetalRust),     // front sight
+    wp(0.0, 0.046, 0.005, 0.024, 0.018, 0.016, MetalRust),      // rear sight
+    wp(0.0, 0.008, -0.170, 0.014, 0.014, 0.030, PipeMetal),     // muzzle
+    wp(0.0, -0.005, -0.030, 0.030, 0.030, 0.110, MetalPanel),   // frame
+    wpx(0.0, -0.088, 0.030, 0.032, 0.140, 0.048, 0.24, Rubber), // grip
+    wp(0.0, -0.038, -0.010, 0.022, 0.010, 0.044, MetalPanel),   // trigger guard
+    wpx(0.0, -0.088, 0.030, 0.020, 0.130, 0.030, 0.24, MetalRust), // magazine floorplate
+];
+
+// Heavy revolver.
+const PISTOL_HEAVY: [WeaponPart; 9] = [
+    wp(0.0, 0.024, -0.150, 0.024, 0.026, 0.170, PipeMetal),     // barrel
+    wp(0.0, 0.046, -0.150, 0.020, 0.016, 0.165, MetalPlateDiamond), // top rib
+    wp(0.0, -0.002, -0.150, 0.022, 0.024, 0.150, MetalPanel),   // ejector shroud
+    wp(0.0, 0.020, -0.030, 0.058, 0.058, 0.070, MetalRust),     // cylinder
+    wp(0.0, 0.022, 0.030, 0.030, 0.052, 0.075, MetalPanel),     // frame
+    wp(0.0, 0.056, 0.052, 0.020, 0.024, 0.026, MetalRust),      // hammer
+    wpx(0.0, -0.078, 0.070, 0.036, 0.145, 0.058, 0.30, WoodPlank), // grip
+    wp(0.0, -0.030, 0.020, 0.024, 0.010, 0.050, MetalPanel),    // trigger guard
+    wp(0.0, 0.050, -0.225, 0.012, 0.018, 0.014, MetalRust),     // front sight
+];
+
+// Combat knife.
+const KNIFE: [WeaponPart; 5] = [
+    wp(0.0, 0.006, -0.150, 0.010, 0.036, 0.170, MetalPlateDiamond), // blade
+    wp(0.0, 0.020, -0.235, 0.008, 0.020, 0.045, MetalPanel),    // point taper
+    wp(0.0, -0.010, -0.140, 0.011, 0.014, 0.110, MetalRust),    // serrated spine
+    wp(0.0, 0.000, -0.052, 0.038, 0.030, 0.016, MetalPanel),    // guard
+    wp(0.0, 0.000, 0.010, 0.026, 0.030, 0.110, Rubber),         // handle
+];
+
+// Entrenching tool.
+const SPADE: [WeaponPart; 5] = [
+    wp(0.0, 0.000, -0.235, 0.120, 0.018, 0.130, MetalRust),     // blade
+    wp(0.0, 0.000, -0.300, 0.090, 0.014, 0.045, MetalPlateDiamond), // blade edge
+    wp(0.0, 0.000, -0.165, 0.040, 0.030, 0.055, MetalPanel),    // socket
+    wp(0.0, 0.000, -0.040, 0.024, 0.024, 0.210, WoodPlank),     // shaft
+    wp(0.0, 0.000, 0.075, 0.048, 0.026, 0.030, Rubber),         // grip
+];
+
+const M_RIFLE: WeaponModel = WeaponModel {
+    parts: &RIFLE,
+    grip: Vec3::new(0.0, -0.105, 0.085),
+    fore: Vec3::new(0.0, -0.035, -0.31),
+    muzzle: Vec3::new(0.0, 0.006, -0.645),
+};
+const M_BULLPUP: WeaponModel = WeaponModel {
+    parts: &BULLPUP,
+    grip: Vec3::new(0.0, -0.095, -0.055),
+    fore: Vec3::new(0.0, -0.030, -0.26),
+    muzzle: Vec3::new(0.0, 0.010, -0.545),
+};
+const M_SMG: WeaponModel = WeaponModel {
+    parts: &SMG,
+    grip: Vec3::new(0.0, -0.092, 0.062),
+    fore: Vec3::new(0.0, -0.055, -0.185),
+    muzzle: Vec3::new(0.0, 0.012, -0.365),
+};
+const M_SHOTGUN: WeaponModel = WeaponModel {
+    parts: &SHOTGUN,
+    grip: Vec3::new(0.0, -0.082, 0.085),
+    fore: Vec3::new(0.0, -0.036, -0.235),
+    muzzle: Vec3::new(0.0, 0.022, -0.555),
+};
+const M_SNIPER: WeaponModel = WeaponModel {
+    parts: &SNIPER,
+    grip: Vec3::new(0.0, -0.100, 0.095),
+    fore: Vec3::new(0.0, -0.040, -0.28),
+    muzzle: Vec3::new(0.0, 0.006, -0.675),
+};
+const M_LMG: WeaponModel = WeaponModel {
+    parts: &LMG,
+    grip: Vec3::new(0.0, -0.106, 0.105),
+    fore: Vec3::new(0.0, -0.040, -0.34),
+    muzzle: Vec3::new(0.0, 0.010, -0.640),
+};
+const M_PISTOL_SMALL: WeaponModel = WeaponModel {
+    parts: &PISTOL_SMALL,
+    grip: Vec3::new(0.0, -0.080, 0.030),
+    fore: Vec3::new(0.0, -0.045, -0.060),
+    muzzle: Vec3::new(0.0, 0.020, -0.190),
+};
+const M_PISTOL_HEAVY: WeaponModel = WeaponModel {
+    parts: &PISTOL_HEAVY,
+    grip: Vec3::new(0.0, -0.072, 0.070),
+    fore: Vec3::new(0.0, -0.040, -0.020),
+    muzzle: Vec3::new(0.0, 0.024, -0.240),
+};
+const M_KNIFE: WeaponModel = WeaponModel {
+    parts: &KNIFE,
+    grip: Vec3::new(0.0, 0.000, 0.010),
+    fore: Vec3::new(0.0, 0.000, 0.010),
+    muzzle: Vec3::new(0.0, 0.010, -0.250),
+};
+const M_SPADE: WeaponModel = WeaponModel {
+    parts: &SPADE,
+    grip: Vec3::new(0.0, 0.000, 0.060),
+    fore: Vec3::new(0.0, 0.000, -0.080),
+    muzzle: Vec3::new(0.0, 0.000, -0.300),
+};
+
+pub fn weapon_model(shape: ModelShape) -> &'static WeaponModel {
     use ModelShape::*;
     match shape {
-        Rifle => &RIFLE,
-        Bullpup => &BULLPUP,
-        Smg => &SMG,
-        Shotgun => &SHOTGUN,
-        SniperLong => &SNIPER,
-        Lmg => &LMG,
-        PistolSmall => &PISTOL_SMALL,
-        PistolHeavy => &PISTOL_HEAVY,
-        Knife => &KNIFE,
-        Spade => &SPADE,
+        Rifle => &M_RIFLE,
+        Bullpup => &M_BULLPUP,
+        Smg => &M_SMG,
+        Shotgun => &M_SHOTGUN,
+        SniperLong => &M_SNIPER,
+        Lmg => &M_LMG,
+        PistolSmall => &M_PISTOL_SMALL,
+        PistolHeavy => &M_PISTOL_HEAVY,
+        Knife => &M_KNIFE,
+        Spade => &M_SPADE,
     }
+}
+
+pub fn weapon_parts(shape: ModelShape) -> &'static [WeaponPart] {
+    weapon_model(shape).parts
+}
+
+/// The transform for one box of a weapon, given the frame the weapon is drawn
+/// in and the per-weapon proportions.
+///
+/// The proportion scale multiplies offsets and box dimensions separately
+/// rather than wrapping the whole thing, so a canted magazine on a long
+/// weapon comes out longer rather than sheared.
+pub fn weapon_part_matrix(base: Mat4, model_scale: Vec3, part: &WeaponPart) -> Mat4 {
+    base * Mat4::from_translation(part.offset * model_scale)
+        * Mat4::from_euler(glam::EulerRot::XYZ, part.rot.x, part.rot.y, part.rot.z)
+        * Mat4::from_scale(part.size * model_scale)
 }
 
 /// A scale applied to a weapon's model so heavier weapons look heavier.
 pub fn weapon_model_scale(def: &crate::game::weapons::WeaponDef) -> Vec3 {
     // Longer-ranged weapons get longer barrels; higher-capacity ones get
     // bulkier bodies. Both are derived, so a new weapon needs no art.
-    let length = 0.85 + (def.range_far / 200.0).clamp(0.0, 1.0) * 0.4;
-    let bulk = 0.9 + (def.mag as f32 / 100.0).clamp(0.0, 1.0) * 0.35;
+    let length = 0.88 + (def.range_far / 200.0).clamp(0.0, 1.0) * 0.30;
+    let bulk = 0.92 + (def.mag as f32 / 100.0).clamp(0.0, 1.0) * 0.26;
     Vec3::new(bulk, bulk, length)
 }

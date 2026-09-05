@@ -789,13 +789,20 @@ fn weapon_preview(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, weapon: Weapo
     // Fit the model to the panel from its own bounds, so a pistol fills the
     // frame as well as a machine gun does, and centre it on those bounds
     // rather than on the grip.
+    // Parts carry their own rotation, so a box's extent is the extent of its
+    // rotated half-axes, not of its dimensions.
+    let part_rot = |part: &meshgen::WeaponPart| {
+        glam::Mat3::from_euler(glam::EulerRot::XYZ, part.rot.x, part.rot.y, part.rot.z)
+    };
     let mut lo = Vec3::splat(f32::MAX);
     let mut hi = Vec3::splat(f32::MIN);
     for part in parts {
         let o = part.offset * scale;
-        let sz = part.size * scale * 0.5;
-        lo = lo.min(o - sz);
-        hi = hi.max(o + sz);
+        let r = part_rot(part);
+        let h = part.size * scale * 0.5;
+        let ext = r.x_axis.abs() * h.x + r.y_axis.abs() * h.y + r.z_axis.abs() * h.z;
+        lo = lo.min(o - ext);
+        hi = hi.max(o + ext);
     }
     let size = hi - lo;
     let mid = (hi + lo) * 0.5;
@@ -810,6 +817,7 @@ fn weapon_preview(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, weapon: Weapo
     for part in parts {
         let centre = part.offset * scale;
         let half = part.size * scale * 0.5;
+        let rot = part_rot(part);
         let tint = part.mat.tint();
         let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
         for axis in 0..3usize {
@@ -825,9 +833,9 @@ fn weapon_preview(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, weapon: Weapo
                     v[axis] = n[axis] * half[axis];
                     v[a1] = s1 * half[a1];
                     v[a2] = s2 * half[a2];
-                    corners[i] = rotate(centre + v - mid);
+                    corners[i] = rotate(centre + rot * v - mid);
                 }
-                let rn = rotate(n);
+                let rn = rotate(rot * n);
                 // Back-face cull against the viewer looking down -Z.
                 if rn.z >= -0.01 { continue; }
                 // Flat directional shade, the era's whole lighting model.

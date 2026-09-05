@@ -6,7 +6,7 @@
 //! casing), and produces the renderer's instance lists.
 
 use crate::assets::materials::Mat;
-use crate::assets::meshgen::{self, Part, PartInstance, PoseInput, PART_COUNT, PART_SIZE};
+use crate::assets::meshgen::{self, Part, PartInstance, PartLook, PoseInput, PART_SIZE};
 use crate::assets::texgen::Sprite;
 use crate::game::loadout::Equipment;
 use crate::game::types::{PFlags, PickupKind, Team, MAX_PLAYERS};
@@ -186,6 +186,11 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
         let team = p.team;
         let team_index = match team { Team::Phantom => 1, Team::Vanguard => 2, _ => 0 };
 
+        let def = WeaponId::from_u8(p.snap.weapon).def();
+        let model = meshgen::weapon_model(def.shape);
+        let model_scale = meshgen::weapon_model_scale(def);
+        let scaled = |v: Vec3| v * model_scale;
+
         let pose = meshgen::pose_character(
             &PoseInput {
                 yaw: p.render_yaw,
@@ -198,26 +203,36 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
                 death_time: p.death_time,
                 firing: p.firing,
                 reloading: p.snap.flags.contains(PFlags::RELOADING),
+                grip: scaled(model.grip),
+                fore: if def.shape.two_handed() { scaled(model.fore) } else { scaled(model.grip) + Vec3::new(-0.16, -0.02, 0.04) },
             },
             p.render_pos,
         );
 
         let tint = team_tint(team);
-        for i in 0..PART_COUNT {
-            let part = part_from_index(i);
-            let mat = if part == Part::Weapon {
-                Mat::MetalPanel
-            } else {
-                meshgen::part_material(part, team_index)
-            };
+        for part in meshgen::ALL_PARTS {
+            let look = meshgen::part_look(part);
+            let mat = meshgen::look_material(look, team_index);
             // Fatigues take the team colour; kit stays neutral so the
             // silhouette still reads as a soldier rather than a colour swatch.
-            let color = match part {
-                Part::Head => [0.72, 0.60, 0.50, 1.0],
-                Part::Helmet | Part::Pack | Part::Weapon => [0.85, 0.85, 0.85, 1.0],
-                _ => tint,
+            let color = match look {
+                PartLook::Skin => [0.72, 0.60, 0.50, 1.0],
+                PartLook::Hard => [0.66, 0.67, 0.68, 1.0],
+                PartLook::Webbing => [0.56, 0.54, 0.47, 1.0],
+                PartLook::Boots => [0.46, 0.44, 0.42, 1.0],
+                PartLook::Fatigues => tint,
             };
-            r.push_part(PartInstance::from_matrix(pose[i], color, mat.layer(), [1.0, 0.0, 0.0]));
+            r.push_part(PartInstance::from_matrix(
+                pose.parts[part as usize], color, mat.layer(), [1.0, 0.0, 0.0]));
+        }
+
+        // The weapon they are actually carrying, built from the same box list
+        // the viewmodel uses. A single grey brick in the hand was the loudest
+        // thing wrong with these models at any range you could see them.
+        for wp in model.parts {
+            let m = meshgen::weapon_part_matrix(pose.weapon, model_scale, wp);
+            r.push_part(PartInstance::from_matrix(
+                m, [0.90, 0.90, 0.90, 1.0], wp.mat.layer(), [1.0, 0.0, 0.0]));
         }
 
         if shadows && !dead {
@@ -234,16 +249,6 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
         }
     }
     let _ = time;
-}
-
-fn part_from_index(i: usize) -> Part {
-    const ORDER: [Part; PART_COUNT] = [
-        Part::Hips, Part::Torso, Part::Head, Part::Helmet,
-        Part::ArmUpperL, Part::ArmLowerL, Part::ArmUpperR, Part::ArmLowerR,
-        Part::LegUpperL, Part::LegLowerL, Part::LegUpperR, Part::LegLowerR,
-        Part::Pack, Part::Weapon,
-    ];
-    ORDER[i.min(PART_COUNT - 1)]
 }
 
 fn team_tint(team: Team) -> [f32; 4] {
@@ -380,8 +385,11 @@ impl ViewModel {
 
         // Held out and to the right so the weapon reads in profile rather
         // than as a box pointing away from the camera.
-        let hip = Vec3::new(0.185, -0.205, -0.62);
-        let aim = Vec3::new(0.0, -0.070, -0.44);
+        // The models are built at real proportions - a rifle is most of a
+        // metre - so the carry positions sit further out than they did when a
+        // rifle was seven boxes and sixty centimetres long.
+        let hip = Vec3::new(0.145, -0.215, -0.88);
+        let aim = Vec3::new(0.0, -0.079, -0.68);
         let mut pos = hip.lerp(aim, self.ads);
 
         // Walk bob, damped hard while aiming.
@@ -434,25 +442,22 @@ impl ViewModel {
         // frame of their own that shares only the placement and rotation.
         let hands = Mat4::from_translation(pos)
             * Mat4::from_euler(glam::EulerRot::YXZ, rot_y, rot_x, rot_z);
+        let model = meshgen::weapon_model(def.shape);
         let model_scale = meshgen::weapon_model_scale(def);
-        let base = hands * Mat4::from_scale(model_scale);
 
-        let parts = meshgen::weapon_parts(def.shape);
-        for part in parts {
-            let m = base
-                * Mat4::from_translation(part.offset)
-                * Mat4::from_scale(part.size);
+        for part in model.parts {
+            let m = meshgen::weapon_part_matrix(hands, model_scale, part);
             r.push_viewmodel(PartInstance::from_matrix(m, [1.0, 1.0, 1.0, 1.0], part.mat.layer(), [1.0, 0.0, 0.0]));
         }
 
-        // Gloved hands, derived from the model instead of authored per weapon:
-        // the firing hand goes on the lowest part (always the grip) and the
-        // support hand on the most forward one. A floating weapon is the single
-        // thing that most gives away an unfinished viewmodel.
+        // Gloved hands on the points the model declares. Inferring them from
+        // the box list - firing hand on the lowest, support hand on the most
+        // forward - is a fair guess for a rifle and quite wrong for a
+        // revolver, whose most forward box is the barrel.
         fn glove(r: &mut Renderer, hands: Mat4, at: Vec3, size: Vec3) {
             let m = hands * Mat4::from_translation(at) * Mat4::from_scale(size);
             r.push_viewmodel(PartInstance::from_matrix(
-                m, [1.0, 1.0, 1.0, 1.0], Mat::Tarp.layer(), [1.0, 0.0, 0.0]));
+                m, [0.88, 0.86, 0.82, 1.0], Mat::Tarp.layer(), [1.0, 0.0, 0.0]));
         }
         // A forearm is a box aimed along `dir`, built from an explicit basis so
         // the angles cannot be got wrong.
@@ -462,31 +467,31 @@ impl ViewModel {
             let up = f.cross(right);
             let m = hands * Mat4::from_cols(
                 (right * thick).extend(0.0),
-                (up * thick).extend(0.0),
+                (up * thick * 0.86).extend(0.0),
                 (f * len).extend(0.0),
                 (from + f * (len * 0.5)).extend(1.0),
             );
             r.push_viewmodel(PartInstance::from_matrix(
-                m, [1.0, 1.0, 1.0, 1.0], Mat::Camo.layer(), [1.0, 0.0, 0.0]));
+                m, [0.72, 0.72, 0.70, 1.0], Mat::Camo.layer(), [1.0, 0.0, 0.0]));
         }
 
-        if let Some(g) = parts.iter().min_by(|a, b| a.offset.y.total_cmp(&b.offset.y)).copied() {
-            let gp = g.offset * model_scale;
-            glove(r, hands, Vec3::new(0.004, gp.y + 0.012, gp.z), Vec3::new(g.size.x + 0.034, 0.078, 0.078));
-            forearm(r, hands, Vec3::new(0.010, gp.y - 0.030, gp.z + 0.035),
-                    Vec3::new(0.34, -0.56, 0.76), 0.30, 0.066);
-        }
+        // Hands and sleeves scale with the weapon only in the axes the weapon
+        // grew in; a hand is a hand whatever it is holding.
+        let hand_at = |p: Vec3| Vec3::new(p.x * model_scale.x, p.y * model_scale.y, p.z * model_scale.z);
+        let gp = hand_at(model.grip);
+        glove(r, hands, Vec3::new(0.004, gp.y + 0.020, gp.z + 0.004), Vec3::new(0.062, 0.086, 0.080));
+        forearm(r, hands, Vec3::new(0.014, gp.y - 0.012, gp.z + 0.046),
+                Vec3::new(0.30, -0.50, 0.81), 0.24, 0.052);
         if def.shape.two_handed() {
-            if let Some(fr) = parts.iter().min_by(|a, b| a.offset.z.total_cmp(&b.offset.z)).copied() {
-                let fp = fr.offset * model_scale;
-                glove(r, hands, Vec3::new(-0.006, fp.y - 0.016, fp.z + 0.055), Vec3::new(0.072, 0.080, 0.086));
-                forearm(r, hands, Vec3::new(-0.030, fp.y - 0.055, fp.z + 0.095),
-                        Vec3::new(-0.52, -0.54, 0.66), 0.32, 0.064);
-            }
+            let fp = hand_at(model.fore);
+            glove(r, hands, Vec3::new(-0.004, fp.y - 0.010, fp.z + 0.010), Vec3::new(0.060, 0.070, 0.092));
+            forearm(r, hands, Vec3::new(-0.026, fp.y - 0.044, fp.z + 0.056),
+                    Vec3::new(-0.50, -0.52, 0.69), 0.25, 0.050);
         }
 
         // Track the muzzle in world space so effects can be spawned there.
-        let muzzle_view = base * glam::Vec4::new(0.0, 0.0, -0.62, 1.0);
+        let muzzle_view = (hands * Mat4::from_scale(model_scale))
+            * model.muzzle.extend(1.0);
         let view = camera.view();
         let inv_view = view.inverse();
         self.muzzle_world = (inv_view * muzzle_view).truncate();
