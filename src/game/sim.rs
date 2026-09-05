@@ -326,6 +326,26 @@ impl World {
         });
 
         let rewind = self.rewind_time_for(slot);
+        if std::env::var_os("HARDPOINT_TRACE").is_some()
+            && self.player(slot).is_some_and(|p| !p.is_bot)
+        {
+            let mut best = (f32::MAX, f32::MAX, 0.0f32);
+            for i in 0..self.players.len() {
+                if i as u8 == slot || !self.players[i].in_use || !self.players[i].alive { continue; }
+                if !self.hostile(slot, i as u8) { continue; }
+                let now_p = self.players[i].mv.pos + Vec3::Y * 0.9;
+                let old_p = self.players[i].rewind(rewind)
+                    .map(|s| s.pos + Vec3::Y * 0.9).unwrap_or(now_p);
+                let d = (now_p - origin).length();
+                let a_now = base_dir.dot((now_p - origin).normalize_or_zero()).acos().to_degrees();
+                let a_old = base_dir.dot((old_p - origin).normalize_or_zero()).acos().to_degrees();
+                if a_now < best.0 { best = (a_now, a_old, d); }
+            }
+            if best.0 < 30.0 {
+                eprintln!("[aim] err_now={:.2} deg  err_rewound={:.2} deg  dist={:.1} m  cone={:.2} deg  lag_comp_dt={:.0} ms",
+                          best.0, best.1, best.2, cone.to_degrees(), (self.time - rewind) * 1000.0);
+            }
+        }
         for pellet in 0..def.pellets.max(1) {
             let mut rng = Rng::seeded(seed ^ (pellet as u32).wrapping_mul(0x9E37_79B9));
             let dir = spread_direction(base_dir, cone, &mut rng);

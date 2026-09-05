@@ -17,7 +17,7 @@ use glam::{Mat4, Vec3, Vec4};
 
 const KILLFEED_LIFE: f64 = 6.0;
 const KILLFEED_MAX: usize = 6;
-const HITMARKER_LIFE: f32 = 0.35;
+const HITMARKER_LIFE: f32 = 0.55;
 const DAMAGE_INDICATOR_LIFE: f32 = 1.4;
 
 #[derive(Clone)]
@@ -155,6 +155,10 @@ pub struct HudFrame<'a> {
     pub hud: &'a Hud,
     pub now: f64,
     pub view_proj: Mat4,
+    /// Camera yaw. The damage compass needs a horizontal basis; deriving one
+    /// from the view matrix drags pitch into it and swings the arc across the
+    /// screen whenever the player looks up or down.
+    pub cam_yaw: f32,
     pub spread: f32,
     pub crosshair_style: u8,
     pub show_damage_numbers: bool,
@@ -292,22 +296,37 @@ fn draw_hit_markers(p: &mut Painter, f: &HudFrame, w: f32, h: f32) {
     let cx = w * 0.5;
     let cy = h * 0.5;
     for m in &f.hud.markers {
-        let t = 1.0 - (m.life / HITMARKER_LIFE).clamp(0.0, 1.0);
-        let spread = 8.0 + (1.0 - t) * 8.0;
-        let color = if m.lethal {
-            theme::with_alpha(theme::BAD, t)
+        // Hold at full strength for the first third, then fade. A marker that
+        // starts fading immediately is one you never quite see.
+        let age = (m.life / HITMARKER_LIFE).clamp(0.0, 1.0);
+        let t = if age < 0.35 { 1.0 } else { 1.0 - (age - 0.35) / 0.65 };
+        // A small outward punch on arrival sells the hit.
+        let spread = 11.0 + age * 7.0;
+        let (color, thick, len) = if m.lethal {
+            (theme::with_alpha(theme::BAD, t), 4.0, 16.0)
         } else if m.zone == HitZone::Head {
-            theme::with_alpha(theme::ACCENT, t)
+            (theme::with_alpha(theme::ACCENT, t), 4.0, 14.0)
         } else {
-            theme::with_alpha(theme::TEXT_BRIGHT, t * 0.9)
+            (theme::with_alpha(theme::TEXT_BRIGHT, t), 3.0, 12.0)
         };
-        let len = 8.0;
+        let s = f.scale;
         for (dx, dy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
             // Four diagonal ticks: instantly readable, and the shape everyone
-            // who played these games recognises.
-            for i in 0..len as i32 {
-                let o = i as f32;
-                p.rect(cx + dx * (spread + o), cy + dy * (spread + o), 2.0, 2.0, color);
+            // who played these games recognises. Drawn as one run of squares
+            // along the diagonal so it reads as a solid stroke.
+            let steps = (len / 2.0) as i32;
+            for i in 0..steps {
+                let o = (spread + i as f32 * 2.0) * s;
+                p.rect(cx + dx * o - thick * 0.5, cy + dy * o - thick * 0.5,
+                       thick, thick, color);
+            }
+        }
+        // A kill also gets a ring, so a finished target is unmistakable.
+        if m.lethal {
+            let r = 26.0 * s;
+            for i in 0..24 {
+                let a = i as f32 / 24.0 * std::f32::consts::TAU;
+                p.rect(cx + a.cos() * r - 2.0, cy + a.sin() * r - 2.0, 4.0, 4.0, color);
             }
         }
     }
@@ -432,28 +451,28 @@ fn draw_damage_indicators(p: &mut Painter, f: &HudFrame, w: f32, h: f32) {
     if f.hud.damage.is_empty() { return; }
     let cx = w * 0.5;
     let cy = h * 0.5;
-    // The camera basis, recovered from the view-projection, tells us where a
-    // hit came from relative to where the player is looking.
-    let inv = f.view_proj.inverse();
-    let forward = (inv * Vec4::new(0.0, 0.0, -1.0, 0.0)).truncate().normalize_or_zero();
-    let right = (inv * Vec4::new(1.0, 0.0, 0.0, 0.0)).truncate().normalize_or_zero();
+    // A compass, so it only ever answers "which way do I turn". Using the full
+    // camera forward instead put the arc somewhere else entirely as soon as
+    // the player looked up or down, which is most of a firefight.
+    let (forward, right) = crate::math::move_basis(f.cam_yaw);
 
     for d in &f.hud.damage {
         let t = 1.0 - (d.life / DAMAGE_INDICATOR_LIFE).clamp(0.0, 1.0);
-        let fwd = d.dir.dot(forward);
-        let rgt = d.dir.dot(right);
-        let angle = rgt.atan2(fwd);
-        let radius = 150.0;
-        let px = cx + angle.sin() * radius;
-        let py = cy - angle.cos() * radius;
-        let color = theme::with_alpha(theme::BAD, t * (0.4 + d.strength * 0.6));
-        // A short arc drawn as a run of blocks; cheap and unmistakable.
-        for i in -4..=4 {
-            let a = angle + i as f32 * 0.045;
+        let flat = Vec3::new(d.dir.x, 0.0, d.dir.z).normalize_or_zero();
+        if flat.length_squared() < 1e-6 { continue; }
+        let angle = flat.dot(right).atan2(flat.dot(forward));
+
+        let radius = 170.0 * f.scale;
+        let fade = t * (0.45 + d.strength * 0.55);
+        // A thick tapered arc: widest at the bearing, fading off to the sides.
+        for i in -7i32..=7 {
+            let a = angle + i as f32 * 0.055;
+            let taper = 1.0 - (i.abs() as f32 / 8.0);
+            let thick = 4.0 + taper * 6.0;
             let bx = cx + a.sin() * radius;
             let by = cy - a.cos() * radius;
-            let _ = (px, py);
-            p.rect(bx - 3.0, by - 3.0, 6.0, 6.0, color);
+            p.rect(bx - thick * 0.5, by - thick * 0.5, thick, thick,
+                   theme::with_alpha(theme::BAD, fade * (0.35 + taper * 0.65)));
         }
     }
 }

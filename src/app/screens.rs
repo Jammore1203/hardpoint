@@ -826,6 +826,12 @@ fn settings_screen(ui: &mut Ui, s: &mut crate::settings::Settings, _scroll: usiz
     }
     y += step;
     changed |= ui.toggle(x, y, col_w, "ANTI-ALIASING", &mut s.antialiasing); y += step;
+    let aniso_label = if s.anisotropy <= 1 { "OFF (SHARP)".to_string() } else { format!("{}X", s.anisotropy) };
+    if ui.option(x, y, col_w, "ANISOTROPIC FILTER", &aniso_label, true) != 0 {
+        s.anisotropy = match s.anisotropy { 0 | 1 => 2, 2 => 4, 4 => 8, 8 => 16, _ => 1 };
+        changed = true;
+    }
+    y += step;
     changed |= ui.toggle(x, y, col_w, "POST PROCESSING", &mut s.post_processing); y += step;
     if ui.slider(x, y, col_w, "FIELD OF VIEW", &mut s.fov, 65.0, 120.0, 1.0, "{}") { changed = true; }
     y += step + 16.0;
@@ -1141,6 +1147,7 @@ fn draw_hud(app: &mut App, now: f64) {
         hud: &app.hud,
         now,
         view_proj,
+        cam_yaw: app.yaw,
         spread,
         crosshair_style: app.settings.crosshair,
         show_damage_numbers: app.settings.show_damage_numbers,

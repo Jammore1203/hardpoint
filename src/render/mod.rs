@@ -131,6 +131,8 @@ pub struct RenderSettings {
     pub post_processing: bool,
     /// Highest mip the world sampler may use, for texture quality.
     pub texture_lod_bias: f32,
+    /// Anisotropic samples; 1 means off and restores point magnification.
+    pub anisotropy: u8,
     pub shadows: bool,
     pub particles: f32,
 }
@@ -149,6 +151,7 @@ impl Default for RenderSettings {
             view_distance: 1.0,
             post_processing: true,
             texture_lod_bias: 0.0,
+            anisotropy: 8,
             shadows: true,
             particles: 1.0,
         }
@@ -306,7 +309,7 @@ impl Renderer {
         // World texture array.
         let world_array = texgen::generate_world_array(texture_size);
         let texture_bytes = world_array.bytes();
-        let (world_layout, world_bg) = build_world_bindings(device, &gpu.queue, &world_array, settings.texture_lod_bias);
+        let (world_layout, world_bg) = build_world_bindings(device, &gpu.queue, &world_array, settings.texture_lod_bias, settings.anisotropy);
 
         // Sprite and font atlases.
         let font = FontAtlas::build();
@@ -467,7 +470,8 @@ impl Renderer {
 
     pub fn apply_settings(&mut self, settings: RenderSettings, vsync: bool) {
         let msaa_changed = settings.msaa != self.settings.msaa;
-        let lod_changed = (settings.texture_lod_bias - self.settings.texture_lod_bias).abs() > 0.01;
+        let lod_changed = (settings.texture_lod_bias - self.settings.texture_lod_bias).abs() > 0.01
+            || settings.anisotropy != self.settings.anisotropy;
         let scale_changed = (settings.resolution_scale - self.settings.resolution_scale).abs() > 0.001;
         self.settings = settings;
         self.gpu.set_vsync(vsync);
@@ -517,7 +521,7 @@ impl Renderer {
     fn rebuild_world_sampler(&mut self) {
         // Regenerating the array would be wasteful; only the sampler changes.
         let array = texgen::generate_world_array(64);
-        let (layout, bg) = build_world_bindings(&self.gpu.device, &self.gpu.queue, &array, self.settings.texture_lod_bias);
+        let (layout, bg) = build_world_bindings(&self.gpu.device, &self.gpu.queue, &array, self.settings.texture_lod_bias, self.settings.anisotropy);
         self.world_layout = layout;
         self.world_bg = bg;
         self.rebuild_pipelines();
@@ -863,6 +867,7 @@ fn build_world_bindings(
     queue: &wgpu::Queue,
     array: &TextureArray,
     lod_bias: f32,
+    anisotropy: u8,
 ) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
     let layers = array.layers.len() as u32;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -902,18 +907,24 @@ fn build_world_bindings(
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
     });
+    // Anisotropic filtering needs all three filters linear, so it and point
+    // magnification are mutually exclusive. Point sampling is the sharper,
+    // more period-correct look, but it leaves every wall seen at a grazing
+    // angle smeared into blotches by isotropic mip selection, which reads as
+    // the texture crawling as you walk. Anisotropy on by default; the
+    // Authentic preset turns it off and takes the smear.
+    let aniso = anisotropy.clamp(1, 16) as u16;
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("world sampler"),
         address_mode_u: wgpu::AddressMode::Repeat,
         address_mode_v: wgpu::AddressMode::Repeat,
         address_mode_w: wgpu::AddressMode::Repeat,
-        // Point magnification is the whole point: textures should look like
-        // texels up close, not smeared.
-        mag_filter: wgpu::FilterMode::Nearest,
+        mag_filter: if aniso > 1 { wgpu::FilterMode::Linear } else { wgpu::FilterMode::Nearest },
         min_filter: wgpu::FilterMode::Linear,
         mipmap_filter: wgpu::FilterMode::Linear,
         lod_min_clamp: lod_bias.max(0.0),
         lod_max_clamp: 32.0,
+        anisotropy_clamp: aniso,
         ..Default::default()
     });
 

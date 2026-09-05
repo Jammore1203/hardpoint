@@ -47,6 +47,10 @@ pub struct Settings {
     pub effects_quality: Quality,
     pub view_distance: f32,
     pub antialiasing: bool,
+    /// Anisotropic filtering samples: 1 turns it off and restores point
+    /// magnification, which is the sharper, more period-correct look but
+    /// smears any surface seen at a grazing angle.
+    pub anisotropy: u8,
     pub post_processing: bool,
     pub fov: f32,
 
@@ -104,6 +108,7 @@ impl Default for Settings {
             effects_quality: Quality::Medium,
             view_distance: 1.0,
             antialiasing: false,
+            anisotropy: 8,
             post_processing: true,
             fov: 90.0,
             vertex_snap: 0.0,
@@ -163,6 +168,7 @@ impl Settings {
         s.effects_quality = Quality::from_u8(kv.u32_or("display.effects_quality", 1) as u8);
         s.view_distance = kv.f32_or("display.view_distance", s.view_distance).clamp(0.4, 1.6);
         s.antialiasing = kv.bool_or("display.antialiasing", s.antialiasing);
+        s.anisotropy = kv.u32_or("display.anisotropy", s.anisotropy as u32).clamp(1, 16) as u8;
         s.post_processing = kv.bool_or("display.post_processing", s.post_processing);
         s.fov = kv.f32_or("display.fov", s.fov).clamp(65.0, 120.0);
 
@@ -229,6 +235,7 @@ impl Settings {
         kv.set_i32("display.effects_quality", self.effects_quality as i32);
         kv.set_f32("display.view_distance", self.view_distance);
         kv.set_bool("display.antialiasing", self.antialiasing);
+        kv.set_i32("display.anisotropy", self.anisotropy as i32);
         kv.set_bool("display.post_processing", self.post_processing);
         kv.set_f32("display.fov", self.fov);
 
@@ -273,6 +280,7 @@ impl Settings {
         crate::render::RenderSettings {
             resolution_scale: self.resolution_scale,
             msaa: self.antialiasing,
+            anisotropy: self.anisotropy.clamp(1, 16),
             vertex_snap: self.vertex_snap,
             affine_texturing: self.affine_texturing,
             scanlines: self.scanlines,
@@ -312,6 +320,7 @@ impl Settings {
         self.effects_quality = Quality::Low;
         self.view_distance = 0.65;
         self.antialiasing = false;
+        self.anisotropy = 2;
         self.post_processing = false;
         self.vsync = false;
         self.fps_limit = 0;
@@ -325,6 +334,7 @@ impl Settings {
         self.effects_quality = Quality::Medium;
         self.view_distance = 1.0;
         self.antialiasing = false;
+        self.anisotropy = 8;
         self.post_processing = true;
         self.dirty = true;
     }
@@ -336,6 +346,7 @@ impl Settings {
         self.effects_quality = Quality::High;
         self.view_distance = 1.35;
         self.antialiasing = true;
+        self.anisotropy = 16;
         self.post_processing = true;
         self.dirty = true;
     }
@@ -348,6 +359,7 @@ impl Settings {
         self.shadow_quality = Quality::Medium;
         self.effects_quality = Quality::Medium;
         self.antialiasing = false;
+        self.anisotropy = 1;
         self.post_processing = true;
         self.vertex_snap = 190.0;
         self.affine_texturing = 0.85;

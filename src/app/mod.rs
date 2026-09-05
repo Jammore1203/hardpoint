@@ -609,13 +609,62 @@ impl App {
                 self.input.set_key(KeyCode::KeyW, (t % 7.0) < 5.0);
                 self.input.set_key(KeyCode::KeyD, (t % 13.0) < 3.5);
                 self.input.set_key(KeyCode::Space, (t % 9.0) < 0.1);
-                self.input.set_mouse(winit::event::MouseButton::Left, (t % 2.6) < 0.30);
-                // Scaled by frame time: the capture window runs uncapped, so a
-                // per-frame constant would spin the view into the floor.
-                let step = (now - prev_now).clamp(0.0, 0.05) as f32;
-                self.input.add_motion((t * 0.35).sin() as f32 * 260.0 * step, 0.0);
+                let engaged = self.nearest_enemy_angles().is_some();
+                // Fire when there is something to shoot, so the harness
+                // produces real hits, kills and progression.
+                self.input.set_mouse(winit::event::MouseButton::Left,
+                                     if engaged { (t % 0.9) < 0.55 } else { (t % 2.6) < 0.30 });
+                // Aim down sights when engaged, as a player would: hip fire is
+                // a close-range tool and testing with it measures nothing.
+                self.input.set_mouse(winit::event::MouseButton::Right, engaged);
+                if engaged {
+                    self.input.set_key(winit::keyboard::KeyCode::KeyW, false);
+                    self.input.set_key(winit::keyboard::KeyCode::KeyD, false);
+                    self.input.set_key(winit::keyboard::KeyCode::Space, false);
+                }
+                // Aim at the nearest enemy when there is one, so the harness
+                // exercises hit feedback, kills and progression rather than
+                // firing at the sky; otherwise sweep to cover ground.
+                if let Some((yaw, pitch)) = self.nearest_enemy_angles() {
+                    let step = (now - prev_now).clamp(0.0, 0.05) as f32;
+                    let k = (step * 9.0).min(1.0);
+                    self.yaw += crate::core::angle_delta(self.yaw, yaw) * k;
+                    self.pitch += (pitch - self.pitch) * k;
+                } else {
+                    // Scaled by frame time: the capture window runs uncapped,
+                    // so a per-frame constant would spin the view into the floor.
+                    let step = (now - prev_now).clamp(0.0, 0.05) as f32;
+                    self.input.add_motion((t * 0.35).sin() as f32 * 260.0 * step, 0.0);
+                }
             }
         }
+    }
+
+    /// View angles onto the closest visible enemy, for the capture harness.
+    fn nearest_enemy_angles(&self) -> Option<(f32, f32)> {
+        let client = self.client.as_ref()?;
+        if !client.local.alive { return None; }
+        let map = self.map.as_ref()?;
+        let eye = client.local.eye();
+        let mine = client.my_team();
+        let mut best: Option<(f32, Vec3)> = None;
+        for (i, p) in client.players.iter().enumerate() {
+            if i as u8 == client.slot || !p.present { continue; }
+            if p.snap.flags.contains(crate::game::types::PFlags::DEAD) { continue; }
+            if mine != crate::game::types::Team::None && p.team == mine { continue; }
+            let target = p.render_pos + Vec3::Y * 1.2;
+            let d = (target - eye).length();
+            if d > 60.0 { continue; }
+            if best.is_some_and(|(bd, _)| d >= bd) { continue; }
+            let dir = (target - eye) / d.max(0.001);
+            if map.collision.trace_ray(eye, dir, d, crate::maps::brush::TraceMask::Solid).hit {
+                continue;
+            }
+            best = Some((d, target));
+        }
+        let (_, target) = best?;
+        let (yaw, pitch) = crate::math::angles_from_dir((target - eye).normalize_or_zero());
+        Some((yaw, pitch))
     }
 
     /// Prints frame-time percentiles. Averages hide hitching; the low
