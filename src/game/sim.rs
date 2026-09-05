@@ -391,12 +391,18 @@ impl World {
                 return;
             }
 
-            // World impact.
+            // World impact. Nothing is drawn for a surface that is not drawn:
+            // the map boundary stops rounds, and sparking off it would leave
+            // decals and puffs hanging in mid-air at the edge of the world.
             let surface = self.map.collision.material_at(world_hit.brush, world_hit.normal).surface();
-            let kind = if def.pellets > 1 { ImpactKind::Pellet } else { ImpactKind::Bullet };
-            self.events.push(GameEvent::Impact {
-                pos: world_hit.point, normal: world_hit.normal, surface, kind,
-            });
+            let visible = self.map.collision.brushes.get(world_hit.brush as usize)
+                .is_some_and(|b| !b.flags.contains(crate::maps::brush::BrushFlags::NODRAW));
+            if visible {
+                let kind = if def.pellets > 1 { ImpactKind::Pellet } else { ImpactKind::Bullet };
+                self.events.push(GameEvent::Impact {
+                    pos: world_hit.point, normal: world_hit.normal, surface, kind,
+                });
+            }
 
             // Can the round get through?
             let brush = match self.map.collision.brushes.get(world_hit.brush as usize) {
