@@ -548,7 +548,7 @@ pub const PART_SIZE: [[f32; 3]; PART_COUNT] = [
     [0.38, 0.22, 0.25], // hips
     [0.43, 0.50, 0.27], // torso
     [0.455, 0.30, 0.30], // vest
-    [0.185, 0.215, 0.20], // head
+    [0.185, 0.225, 0.20], // head
     [0.225, 0.135, 0.235], // helmet
     [0.30, 0.29, 0.15], // pack
     [0.15, 0.13, 0.24], // shoulder L
@@ -730,7 +730,7 @@ pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
     let hip_y = 0.90;
     let chest_y = hip_y + 0.30;
     let shoulder_y = hip_y + 0.46;
-    let neck_y = hip_y + 0.58;
+    let neck_y = hip_y + 0.615;
 
     let at = |x: f32, y: f32, z: f32| -> Vec3 {
         root.transform_point3(Vec3::new(x * s, y * s, z * s))
@@ -770,7 +770,7 @@ pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
         * Mat4::from_translation(Vec3::new(0.0, 0.045 * s, 0.0))
         * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Head as usize]) * s);
     out[Part::Helmet as usize] = head_m
-        * Mat4::from_translation(Vec3::new(0.0, 0.145 * s, 0.008 * s))
+        * Mat4::from_translation(Vec3::new(0.0, 0.155 * s, 0.008 * s))
         * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Helmet as usize]) * s);
 
     for (side, part) in [(-1.0f32, Part::ShoulderL), (1.0, Part::ShoulderR)] {
@@ -788,7 +788,7 @@ pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
     // ---------------------------------------------------------------- legs
     // Opposed swing, with the knee breaking forward on the return stroke and
     // both knees bent by the crouch blend.
-    let stride = input.phase.sin() * 0.62 * run;
+    let stride = input.phase.sin() * 0.46 * run;
     let air = if input.grounded { 0.0 } else { 0.35 };
     let up = root.transform_vector3(Vec3::Y);
     let fwd = root.transform_vector3(-Vec3::Z);
@@ -802,8 +802,8 @@ pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
         let hip = at(side * 0.11, hip_y - 0.06, 0.0);
         // Foot placement drives the leg, so feet land where they look like
         // they land instead of floating a hand's width above the ground.
-        let lift = (swing.max(0.0)) * 0.20 * s + air * 0.12 * s;
-        let reach = swing * 0.34 * s;
+        let lift = (swing.max(0.0)) * 0.13 * s + air * 0.12 * s;
+        let reach = swing * 0.30 * s;
         let squat = (crouch * 0.34 + air * 0.10) * s;
         let ankle = hip + fwd * reach - up * ((thigh + shin) * 0.94 - lift - squat);
         // Knees break forward, and outward a little so they never cross.
@@ -936,8 +936,8 @@ const RIFLE: [WeaponPart; 18] = [
     wp(0.0, -0.056, 0.048, 0.030, 0.010, 0.052, MetalPanel),    // trigger guard
     wp(0.0, -0.038, 0.052, 0.012, 0.026, 0.012, MetalPlateDiamond), // trigger
     wp(0.0, 0.014, 0.155, 0.031, 0.031, 0.13, PipeMetal),       // buffer tube
-    wp(0.0, 0.006, 0.235, 0.042, 0.082, 0.13, MetalPanel),      // stock
-    wp(0.0, 0.002, 0.305, 0.046, 0.094, 0.022, Tire),           // butt pad
+    wp(0.0, 0.004, 0.235, 0.040, 0.072, 0.13, MetalPanel),      // stock
+    wp(0.0, 0.000, 0.305, 0.044, 0.084, 0.022, Tire),           // butt pad
 ];
 
 // Bullpup: the whole action sits behind the grip, so the same barrel length
