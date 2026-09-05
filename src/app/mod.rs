@@ -415,6 +415,9 @@ impl App {
     pub fn apply_settings(&mut self) {
         let rs = self.settings.render_settings();
         self.renderer.apply_settings(rs, self.settings.vsync);
+        // Texture resolution is not a sampler state, so it has to be applied
+        // separately; the renderer no-ops when the size has not moved.
+        self.renderer.set_texture_size(self.settings.texture_quality.texture_size());
         self.audio.set_volumes(
             self.settings.master_volume,
             self.settings.sfx_volume,

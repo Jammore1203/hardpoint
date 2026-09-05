@@ -27,8 +27,13 @@ impl Quality {
         match self { Quality::Low => Quality::Medium, Quality::Medium => Quality::High, Quality::High => Quality::Low }
     }
     /// Texture resolution for this tier.
+    ///
+    /// A 64-pixel material stretched over a three-metre floor is twenty texels
+    /// per metre, which is why every surface in the game used to read as a
+    /// smear. These are the sizes at which a procedural material actually has
+    /// somewhere to put its detail.
     pub fn texture_size(self) -> u32 {
-        match self { Quality::Low => 64, Quality::Medium => 128, Quality::High => 256 }
+        match self { Quality::Low => 128, Quality::Medium => 256, Quality::High => 512 }
     }
 }
 
@@ -108,7 +113,7 @@ impl Default for Settings {
             effects_quality: Quality::Medium,
             view_distance: 1.0,
             antialiasing: false,
-            anisotropy: 8,
+            anisotropy: 16,
             post_processing: true,
             fov: 90.0,
             vertex_snap: 0.0,
@@ -289,11 +294,7 @@ impl Settings {
             saturation: if self.film_grade { 1.0 } else { 1.0 },
             view_distance: self.view_distance,
             post_processing: self.post_processing,
-            texture_lod_bias: match self.texture_quality {
-                Quality::Low => 1.0,
-                Quality::Medium => 0.0,
-                Quality::High => 0.0,
-            },
+            texture_lod_bias: 0.0,
             shadows: self.shadow_quality != Quality::Low,
             particles: match self.effects_quality {
                 Quality::Low => 0.4,
@@ -334,7 +335,7 @@ impl Settings {
         self.effects_quality = Quality::Medium;
         self.view_distance = 1.0;
         self.antialiasing = false;
-        self.anisotropy = 8;
+        self.anisotropy = 16;
         self.post_processing = true;
         self.dirty = true;
     }

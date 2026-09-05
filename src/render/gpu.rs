@@ -229,11 +229,22 @@ impl SceneTargets {
         self.width == width.max(1) && self.height == height.max(1) && self.samples == samples
     }
 
-    /// The attachment pair for a render pass, handling the resolve case.
+    /// The attachment pair for the last pass of the frame, which is where the
+    /// multisample resolve has to happen.
     pub fn attachment(&self, load: wgpu::LoadOp<wgpu::Color>) -> wgpu::RenderPassColorAttachment<'_> {
         wgpu::RenderPassColorAttachment {
             view: &self.color_view,
             resolve_target: if self.multisampled { Some(&self.resolved_view) } else { None },
+            ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+        }
+    }
+
+    /// The same attachment for an intermediate pass. Resolving more than once
+    /// per frame is legal but wasteful, so only the final pass asks for it.
+    pub fn attachment_raw(&self, load: wgpu::LoadOp<wgpu::Color>) -> wgpu::RenderPassColorAttachment<'_> {
+        wgpu::RenderPassColorAttachment {
+            view: &self.color_view,
+            resolve_target: None,
             ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
         }
     }

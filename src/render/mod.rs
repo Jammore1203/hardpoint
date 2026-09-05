@@ -190,10 +190,36 @@ impl Camera {
         let up = Mat4::from_axis_angle(dir, self.roll).transform_vector3(Vec3::Y);
         Mat4::look_to_rh(self.position, dir, up)
     }
+    /// The projection the scene is actually drawn with: reversed depth.
     pub fn proj(&self, aspect: f32) -> Mat4 {
+        reverse_z_perspective(self.fov_y, aspect.max(0.1), self.near, self.far)
+    }
+    /// A conventional 0..1 projection, used only to extract culling planes.
+    /// Reversed depth swaps the near and far rows, which would invert both
+    /// planes and quietly cull the whole world.
+    pub fn cull_proj(&self, aspect: f32) -> Mat4 {
         Mat4::perspective_rh(self.fov_y, aspect.max(0.1), self.near, self.far)
     }
     pub fn view_proj(&self, aspect: f32) -> Mat4 { self.proj(aspect) * self.view() }
+}
+
+/// Right-handed perspective that maps the near plane to depth 1 and the far
+/// plane to depth 0.
+///
+/// Floating-point depth clusters its precision near zero, and a conventional
+/// projection spends that precision on the near plane where nothing needs it.
+/// Reversing the range puts it where the geometry is instead, which turns the
+/// millimetres of separation this game's overlapping floor slabs rely on from
+/// a coin toss at forty metres into an exact answer at four hundred.
+pub fn reverse_z_perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
+    let f = 1.0 / (fov_y * 0.5).tan();
+    let span = (far - near).max(1e-6);
+    Mat4::from_cols(
+        glam::Vec4::new(f / aspect, 0.0, 0.0, 0.0),
+        glam::Vec4::new(0.0, f, 0.0, 0.0),
+        glam::Vec4::new(0.0, 0.0, near / span, -1.0),
+        glam::Vec4::new(0.0, 0.0, far * near / span, 0.0),
+    )
 }
 
 /// The GPU-side copy of one map's geometry.
@@ -252,6 +278,7 @@ pub struct Renderer {
     pub font: FontAtlas,
     pub stats: RenderStats,
     texture_bytes: usize,
+    texture_size: u32,
 
     /// Set to have the next frame copied back to system memory.
     pub capture_request: bool,
@@ -385,6 +412,7 @@ impl Renderer {
             font,
             stats: RenderStats::default(),
             texture_bytes,
+            texture_size,
             capture_request: false,
             captured: None,
             capture: None,
@@ -482,9 +510,8 @@ impl Renderer {
             self.rebuild_pipelines();
         }
         if lod_changed {
-            // The sampler carries the LOD clamp, so texture quality changes
-            // need the bind group rebuilt but not the textures regenerated.
-            self.rebuild_world_sampler();
+            let size = self.texture_size;
+            self.rebuild_world_textures(size);
         }
     }
 
@@ -518,14 +545,30 @@ impl Renderer {
         self.pipe_ui = p.ui;
     }
 
-    fn rebuild_world_sampler(&mut self) {
-        // Regenerating the array would be wasteful; only the sampler changes.
-        let array = texgen::generate_world_array(64);
+    /// Regenerates the material array at `size` and rebinds it.
+    ///
+    /// The sampler carries the anisotropy and LOD clamp, so a filtering change
+    /// alone does not need new pixels - but the bind group does, and the
+    /// texture has to be recreated to be rebound. Keeping the size on the
+    /// renderer is what stops that path from silently dropping every surface
+    /// in the game back to the lowest resolution, which is what it used to do.
+    fn rebuild_world_textures(&mut self, size: u32) {
+        let array = texgen::generate_world_array(size);
+        self.texture_bytes = array.bytes();
+        self.texture_size = size;
         let (layout, bg) = build_world_bindings(&self.gpu.device, &self.gpu.queue, &array, self.settings.texture_lod_bias, self.settings.anisotropy);
         self.world_layout = layout;
         self.world_bg = bg;
         self.rebuild_pipelines();
     }
+
+    /// Changes texture resolution, if it actually differs.
+    pub fn set_texture_size(&mut self, size: u32) {
+        if size == self.texture_size { return; }
+        self.rebuild_world_textures(size);
+    }
+
+    pub fn texture_size(&self) -> u32 { self.texture_size }
 
     /// Uploads a map's geometry, replacing whatever was loaded.
     pub fn upload_map(&mut self, mesh: &MapMesh) {
@@ -578,11 +621,22 @@ impl Renderer {
     /// Draws the frame and presents it.
     pub fn render(&mut self, camera: &Camera, env: &Env, time: f32, flash: f32, damage: f32) -> Result<(), wgpu::SurfaceError> {
         let frame = match self.gpu.surface.get_current_texture() {
+            // A suboptimal frame means the swapchain no longer matches the
+            // surface - which is exactly what a fullscreen transition
+            // produces. Presenting it anyway is what stretches or tears the
+            // first frames at the new size, so take the reconfigure instead.
+            Ok(f) if f.suboptimal => {
+                drop(f);
+                self.gpu.reconfigure();
+                self.gpu.surface.get_current_texture()?
+            }
             Ok(f) => f,
             Err(wgpu::SurfaceError::Outdated) | Err(wgpu::SurfaceError::Lost) => {
                 self.gpu.reconfigure();
                 self.gpu.surface.get_current_texture()?
             }
+            // A timed-out acquire is transient; skipping the frame is right.
+            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
             Err(e) => return Err(e),
         };
         let view = frame.texture.create_view(&Default::default());
@@ -590,11 +644,13 @@ impl Renderer {
         let aspect = self.targets.width as f32 / self.targets.height.max(1) as f32;
         let view_m = camera.view();
         let view_proj = camera.proj(aspect) * view_m;
-        let frustum = Frustum::from_view_proj(view_proj);
+        let frustum = Frustum::from_view_proj(camera.cull_proj(aspect) * view_m);
 
         // The viewmodel gets a narrower field of view and its own near plane,
-        // which is how these games kept a weapon from clipping into walls.
-        let vm_proj = Mat4::perspective_rh(camera.fov_y * 0.86, aspect, 0.010, 12.0);
+        // which is how these games kept a weapon from clipping into walls. It
+        // draws in a pass of its own against a freshly cleared depth buffer,
+        // so its parts occlude each other but nothing in the world.
+        let vm_proj = reverse_z_perspective(camera.fov_y * 0.86, aspect, 0.010, 12.0);
 
         let inv_view = view_m.inverse();
         let right = inv_view.x_axis.truncate();
@@ -647,7 +703,7 @@ impl Renderer {
         {
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
-                color_attachments: &[Some(self.targets.attachment(wgpu::LoadOp::Clear(wgpu::Color {
+                color_attachments: &[Some(self.targets.attachment_raw(wgpu::LoadOp::Clear(wgpu::Color {
                     r: fog[0] as f64,
                     g: fog[1] as f64,
                     b: fog[2] as f64,
@@ -656,7 +712,8 @@ impl Renderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.targets.depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        // Reversed depth: the far plane is zero.
+                        load: wgpu::LoadOp::Clear(0.0),
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -720,9 +777,37 @@ impl Renderer {
                 self.stats.sprites = self.sprites.len() as u32;
             }
 
-            // Viewmodel last, over everything, with the depth buffer cleared
-            // by drawing at its own near plane.
+        }
+
+        // ------------------------------------------------- viewmodel pass
+        //
+        // A pass of its own, over the finished scene, against a depth buffer
+        // cleared back to the far plane. That is what lets the weapon's own
+        // boxes occlude each other correctly - a grip in front of a receiver,
+        // a hand in front of a magazine - while still never being occluded by
+        // a wall the player is standing against. Sharing the world's depth
+        // buffer would force a choice between the two, and the previous
+        // always-pass state chose neither: the parts drew in submission order
+        // and the hands landed on top of the gun.
+        {
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("viewmodel"),
+                color_attachments: &[Some(self.targets.attachment(wgpu::LoadOp::Load))],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.targets.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
             if !self.viewmodel.is_empty() {
+                rp.set_bind_group(0, &self.globals_bg, &[]);
+                rp.set_bind_group(1, &self.world_bg, &[]);
+                rp.set_bind_group(2, &self.atlas_bg, &[]);
                 rp.set_pipeline(&self.pipe_viewmodel);
                 rp.set_vertex_buffer(0, self.cube_vb.slice(..));
                 rp.set_vertex_buffer(1, self.vm_buf.buffer.slice(..));
@@ -1267,15 +1352,15 @@ fn build_pipelines(
         sky: make("sky", &scene_layout, "vs_sky", "fs_sky", &[], &scene_target,
                   Some(depth_write(false, wgpu::CompareFunction::Always)), None, ms),
         world: make("world", &scene_layout, "vs_world", "fs_world", &[world_layout_desc.clone()], &scene_target,
-                    Some(depth_write(true, wgpu::CompareFunction::Less)), Some(wgpu::Face::Back), ms),
+                    Some(depth_write(true, wgpu::CompareFunction::Greater)), Some(wgpu::Face::Back), ms),
         world_cutout: make("world cutout", &scene_layout, "vs_world", "fs_world_cutout", &[world_layout_desc], &scene_target,
-                           Some(depth_write(true, wgpu::CompareFunction::Less)), None, ms),
+                           Some(depth_write(true, wgpu::CompareFunction::Greater)), None, ms),
         part: make("parts", &scene_layout, "vs_part", "fs_part", &part_layouts, &scene_target,
-                   Some(depth_write(true, wgpu::CompareFunction::Less)), Some(wgpu::Face::Back), ms),
+                   Some(depth_write(true, wgpu::CompareFunction::Greater)), Some(wgpu::Face::Back), ms),
         viewmodel: make("viewmodel", &scene_layout, "vs_viewmodel", "fs_viewmodel", &part_layouts, &scene_target,
-                        Some(depth_write(false, wgpu::CompareFunction::Always)), Some(wgpu::Face::Back), ms),
+                        Some(depth_write(true, wgpu::CompareFunction::Greater)), Some(wgpu::Face::Back), ms),
         sprite: make("sprites", &scene_layout, "vs_sprite", "fs_sprite", &sprite_layouts, &scene_blend,
-                     Some(depth_write(false, wgpu::CompareFunction::Less)), None, ms),
+                     Some(depth_write(false, wgpu::CompareFunction::Greater)), None, ms),
         blit: make("blit", &present_layout, "vs_blit", "fs_blit", &[], &present_target, None, None, ms_one),
         ui: make("ui", &present_layout, "vs_ui", "fs_ui", &[ui_layout_desc], &present_blend, None, None, ms_one),
     }

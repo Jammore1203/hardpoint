@@ -358,6 +358,36 @@ impl InputState {
             Binding::None => false,
         }
     }
+
+    /// Swallows the current press of `a`, so a later reader this frame does
+    /// not see the same edge.
+    ///
+    /// A frame runs the world before it runs the interface. Without this, one
+    /// tap of Escape opened the pause menu during the update and the pause
+    /// menu's own back-handler closed it again during the draw, and the key
+    /// looked dead.
+    pub fn consume(&mut self, b: &Bindings, a: Action) {
+        match b.get(a) {
+            Binding::Key(k) => {
+                let i = key_index(k);
+                if i < self.keys.len() { self.keys_prev[i] = self.keys[i]; }
+                if k == KeyCode::Escape { self.escape = false; }
+            }
+            Binding::Mouse(m) => {
+                let i = mouse_index(m);
+                if i < self.mouse.len() { self.mouse_prev[i] = self.mouse[i]; }
+            }
+            Binding::WheelUp | Binding::WheelDown => { self.wheel = 0.0; }
+            Binding::None => {}
+        }
+    }
+
+    /// The same, for the bare Escape edge the menus read directly.
+    pub fn consume_escape(&mut self) {
+        self.escape = false;
+        let i = key_index(KeyCode::Escape);
+        if i < self.keys.len() { self.keys_prev[i] = self.keys[i]; }
+    }
 }
 
 /// Dense index for a key code, so state fits in a fixed array.

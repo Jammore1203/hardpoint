@@ -413,7 +413,23 @@ impl Client {
                 let _hz = r.f32();
                 self.slot = slot;
                 self.match_info.max_players = max;
+                // The identity and loadout were set by `hello` before the
+                // server ever answered, and a fresh Player would throw both
+                // away. Losing the loadout is not cosmetic: the predicted
+                // player's three weapon slots would keep their default
+                // contents forever, the server never sends weapon ids in a
+                // snapshot, and every slot would read - and draw - as the
+                // sidearm no matter which one the player selected.
+                let (name, level, loadout) = (
+                    std::mem::take(&mut self.local.name),
+                    self.local.level,
+                    self.local.loadout,
+                );
                 self.local = Player::new(slot);
+                self.local.name = name;
+                self.local.level = level;
+                self.local.loadout = loadout;
+                self.local.equip();
                 self.local.in_use = true;
                 self.conn = Some(Connection::new(self.server, self.token, self.time));
                 self.state = ClientState::Playing;
@@ -662,7 +678,19 @@ impl Client {
         let was_alive = self.local.alive;
         self.local.alive = local.alive;
         if !was_alive && local.alive {
-            // Fresh spawn: take the server's position wholesale.
+            // Fresh spawn: the server has just re-equipped this player from
+            // their loadout, so the prediction has to do the same or the two
+            // disagree about which weapons are even in the slots.
+            self.local.equip();
+            for i in 0..3 {
+                self.local.weapons[i].ammo = local.ammo[i];
+                self.local.weapons[i].reserve = local.reserve[i];
+            }
+            if local.weapon_slot < 3 {
+                self.local.cur = local.weapon_slot;
+                self.local.queued_slot = local.weapon_slot;
+            }
+            // Take the server's position wholesale.
             self.local.mv = MoveState {
                 pos: local.pos,
                 vel: local.vel,
@@ -911,6 +939,10 @@ impl Client {
 
     pub fn set_loadout(&mut self, l: &Loadout) {
         self.local.loadout = *l;
+        // The server applies a new loadout at the next spawn, and so does the
+        // prediction, but a player who is already dead when they change it
+        // would otherwise see the old weapons on the scoreboard until then.
+        if !self.local.alive { self.local.equip(); }
         self.send_message(&ClientMsg::SetLoadout { loadout: l.encode() });
     }
 

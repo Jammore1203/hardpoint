@@ -38,6 +38,10 @@ impl App {
     fn handle_game_keys(&mut self, _now: f64) {
         let b = self.settings.bindings.clone();
         if self.input.pressed(&b, Action::Pause) {
+            // Take the edge with us: the pause screen draws later in this same
+            // frame and treats an unconsumed Escape as "go back".
+            self.input.consume(&b, Action::Pause);
+            self.input.consume_escape();
             if self.hud.chat_open {
                 self.hud.chat_open = false;
                 self.hud.chat_buffer.clear();
