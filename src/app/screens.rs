@@ -5,15 +5,14 @@
 //! borrow ends, which keeps each screen a straightforward top-to-bottom
 //! description of a page rather than a tangle of callbacks.
 
-use super::{App, HostOptions, Screen, TextTarget};
-use crate::game::loadout::{ClassId, Equipment, Loadout, Perk, ALL_CLASSES, ALL_PERKS, LETHAL_EQUIPMENT, TACTICAL_EQUIPMENT};
+use super::{App, HostOptions, Screen};
+use crate::game::loadout::{ClassId, Loadout, ALL_CLASSES, ALL_PERKS, LETHAL_EQUIPMENT, TACTICAL_EQUIPMENT};
 use crate::game::types::Team;
 use crate::game::weapons::{WeaponClass, WeaponId, ALL_WEAPONS};
 use crate::input::{Action, Binding, ALL_ACTIONS};
-use crate::maps::{MapId, ALL_MAPS};
+use crate::maps::ALL_MAPS;
 use crate::modes::{ModeId, Phase, ALL_MODES};
 use crate::progression::{challenges, rank_name};
-use crate::settings::Quality;
 use crate::ui::draw::Align;
 use crate::ui::theme::{self, Color};
 use crate::ui::widgets::{Nav, Ui, UiSound};
@@ -34,10 +33,8 @@ enum Intent {
     LeaveMatch,
     ChangeTeam(Team),
     Sound(UiSound),
-    Status(String),
     Rebind(Action),
     ResetBindings,
-    SetTextTarget(Option<TextTarget>),
     QuickPlay,
     Scroll(i32),
 }
@@ -82,7 +79,7 @@ pub fn draw(app: &mut App, dt: f32, now: f64) {
                 if hud.scoreboard_open {
                     if let Some(c) = client.as_ref() {
                         let mode = c.match_info.mode;
-                        super::hud::draw_scoreboard(&mut ui.p, c, mode, now);
+                        super::hud::draw_scoreboard(&mut ui.p, c, mode, now, 90.0, 110.0);
                     }
                 }
             }
@@ -175,13 +172,11 @@ fn apply(app: &mut App, intent: Intent) {
             }
         }
         Intent::Sound(s) => app.play_ui(s),
-        Intent::Status(s) => app.set_status(s),
         Intent::Rebind(a) => app.rebinding = Some(a),
         Intent::ResetBindings => {
             app.settings.bindings.reset();
             app.settings.mark_dirty();
         }
-        Intent::SetTextTarget(t) => app.text_target = t,
         Intent::QuickPlay => {
             app.host = HostOptions {
                 name: app.settings.server_name.clone(),
@@ -235,7 +230,7 @@ fn main_menu(ui: &mut Ui, settings: &crate::settings::Settings, prog: &crate::pr
     ui.p.rect(tx, 120.0 + theme::H1 + theme::H3 + 18.0, 420.0, 3.0, theme::ACCENT);
 
     let mut y = 320.0;
-    let bw = 620.0;
+    let bw = 540.0;
     if ui.button(tx, y, bw, "QUICK MATCH", "BOTS, INSTANTLY", true) { out.push(Intent::QuickPlay); }
     y += 54.0;
     if ui.button(tx, y, bw, "MULTIPLAYER", "", true) { out.push(Intent::Push(Screen::Multiplayer)); }
@@ -248,8 +243,8 @@ fn main_menu(ui: &mut Ui, settings: &crate::settings::Settings, prog: &crate::pr
     y += 54.0;
     if ui.button(tx, y, bw, "QUIT", "", true) { out.push(Intent::Quit); }
 
-    // Player card on the right.
-    let px = w * 0.5 + 120.0;
+    // Player card, clear of the menu column's hint text.
+    let px = tx + bw + 60.0;
     let py = 320.0;
     ui.p.panel(px, py, 340.0, 200.0);
     ui.p.text(px + 18.0, py + 18.0, theme::SMALL, theme::TEXT_DIM, "OPERATOR");
@@ -291,11 +286,12 @@ fn browser_screen(
     let list = browser.sorted();
 
     // Column headings.
-    let cols = [0.0f32, 0.40, 0.56, 0.68, 0.82, 0.90];
-    let heads = ["SERVER", "MAP", "MODE", "PLAYERS", "PING", "STATUS"];
+    let cols = [0.0f32, 0.40, 0.56, 0.68, 0.82];
+    let heads = ["SERVER", "MAP", "MODE", "PLAYERS", "PING"];
     for (i, hd) in heads.iter().enumerate() {
         ui.p.text(x + w * cols[i], y, theme::SMALL, theme::TEXT_DIM, hd);
     }
+    ui.p.text_aligned(x + w - 10.0, y, theme::SMALL, theme::TEXT_DIM, "STATUS", Align::Right);
     ui.p.rule(x, y + 22.0, w);
 
     let row_h = 32.0;
@@ -317,7 +313,7 @@ fn browser_screen(
             ui.p.text(x + w * cols[3], ry + 7.0, theme::BODY, theme::TEXT, &e.slots_text());
             let ping_color = if e.ping_ms < 60 { theme::GOOD } else if e.ping_ms < 140 { theme::ACCENT } else { theme::WARN };
             ui.p.text(x + w * cols[4], ry + 7.0, theme::BODY, ping_color, &format!("{}", e.ping_ms));
-            ui.p.text(x + w * cols[5], ry + 7.0, theme::SMALL, theme::TEXT_DIM, e.status());
+            ui.p.text_aligned(x + w - 10.0, ry + 7.0, theme::SMALL, theme::TEXT_DIM, e.status(), Align::Right);
             if e.info.passworded {
                 ui.p.text(x + w * cols[1] - 22.0, ry + 7.0, theme::BODY, theme::WARN, "*");
             }
@@ -1058,7 +1054,7 @@ fn results(
     }
 
     // The scoreboard, then the player's own tally.
-    super::hud::draw_scoreboard(&mut ui.p, c, mi.mode, 0.0);
+    super::hud::draw_scoreboard(&mut ui.p, c, mi.mode, 0.0, 210.0, 250.0);
 
     let px = w * 0.5 - 300.0;
     let py = h - 220.0;

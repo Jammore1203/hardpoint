@@ -6,6 +6,10 @@ rust-version = "1.80"
 description = "HARDPOINT: Operation Ironveil - a retro-styled multiplayer FPS"
 default-run = "hardpoint"
 
+[lib]
+name = "hardpoint"
+path = "src/lib.rs"
+
 [[bin]]
 name = "hardpoint"
 path = "src/main.rs"

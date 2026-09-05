@@ -401,7 +401,7 @@ impl ViewModel {
         // come up: the whole reason a viewmodel looks like a weapon.
         let hip_turn = 1.0 - self.ads;
         let mut rot_x = -self.sway.1 * 1.6 + self.recoil_rot * 0.22 + hip_turn * 0.03;
-        let mut rot_y = -self.sway.0 * 1.6 + hip_turn * 0.055;
+        let rot_y = -self.sway.0 * 1.6 + hip_turn * 0.055;
         let mut rot_z = self.sway.0 * 0.8 - hip_turn * 0.025;
 
         // Sprinting tilts the weapon aside and drops it.

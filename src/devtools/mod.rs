@@ -195,7 +195,7 @@ pub fn sim_test(map_name: &str, seconds: f32, players: usize) -> i32 {
     use crate::core::Rng;
     use crate::game::sim::{World, TICK_DT};
     use crate::game::types::{Buttons, InputCmd, Team};
-    use crate::maps::brush::TraceMask;
+    
 
     let id = match ALL_MAPS.iter().find(|m| m.name().eq_ignore_ascii_case(map_name)) {
         Some(i) => *i,
@@ -217,7 +217,7 @@ pub fn sim_test(map_name: &str, seconds: f32, players: usize) -> i32 {
     for i in 0..n { world.respawn_player(i as u8, true); }
 
     let mut rng = Rng::seeded(7);
-    let mut cmds: Vec<InputCmd> = (0..n).map(|i| InputCmd {
+    let mut cmds: Vec<InputCmd> = (0..n).map(|_i| InputCmd {
         seq: 0, dt_ms: (TICK_DT * 1000.0) as u8,
         move_f: 127, move_r: 0,
         yaw: rng.range(0.0, 6.28), pitch: 0.0,

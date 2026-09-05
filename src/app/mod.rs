@@ -16,7 +16,6 @@ use crate::assets::meshgen::{self, MapMesh};
 use crate::audio::{AudioEngine, SoundBank};
 use crate::core::{FrameClock, RateLimiter};
 use crate::game::loadout::Loadout;
-use crate::game::types::MAX_PLAYERS;
 use crate::input::{Action, InputState};
 use crate::maps::{MapData, MapId};
 use crate::modes::ModeId;
@@ -202,7 +201,6 @@ pub struct App {
     damage_flash: f32,
     flash_blind: f32,
     mouse_captured: bool,
-    fire_held_prev: bool,
     pub(crate) toggle_ads_state: bool,
     pub(crate) toggle_crouch_state: bool,
 
@@ -227,6 +225,10 @@ pub struct App {
     script_last: f64,
     visits: Vec<(f64, Screen)>,
     exit_at: f64,
+    /// Frame times collected for --bench style reporting.
+    bench: Option<Vec<f32>>,
+    /// Set when the session was launched pointing at an external server.
+    pub joined_remote: bool,
 }
 
 /// Where typed characters currently go.
@@ -245,7 +247,7 @@ impl App {
         let texture_size = settings.texture_quality.texture_size();
         let renderer = Renderer::new(window.clone(), render_settings, settings.vsync, texture_size)?;
 
-        let mut audio = AudioEngine::new();
+        let audio = AudioEngine::new();
         audio.set_volumes(
             settings.master_volume,
             settings.sfx_volume,
@@ -317,7 +319,6 @@ impl App {
             damage_flash: 0.0,
             flash_blind: 0.0,
             mouse_captured: false,
-            fire_held_prev: false,
             toggle_ads_state: false,
             toggle_crouch_state: false,
             bank_rx: Some(bank_rx),
@@ -337,6 +338,8 @@ impl App {
             script_last: 0.0,
             visits: parse_visits(),
             exit_at: std::env::var("HARDPOINT_EXIT_AT").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0),
+            bench: std::env::var_os("HARDPOINT_BENCH").map(|_| Vec::with_capacity(1 << 16)),
+            joined_remote: false,
         })
     }
 
@@ -535,7 +538,17 @@ impl App {
 
         self.input.end_frame();
         self.limiter.wait();
-        if self.exit_at > 0.0 && now >= self.exit_at { self.quit = true; }
+        if let Some(b) = &mut self.bench {
+            // Only frames of actual gameplay: menus are not the thing being
+            // measured, and the first second is load and warm-up.
+            if matches!(self.screen, Screen::InGame) && now > 8.0 {
+                b.push(self.clock.raw_dt);
+            }
+        }
+        if self.exit_at > 0.0 && now >= self.exit_at {
+            self.report_bench();
+            self.quit = true;
+        }
     }
 
     /// Drives the scripted screenshot run. Does nothing unless the relevant
@@ -554,7 +567,13 @@ impl App {
         if !self.autoplay { return; }
         let prev_now = std::mem::replace(&mut self.script_last, now);
         let _ = prev_now;
-        let steps: [(f64, u8); 3] = [(2.0, 0), (4.5, 1), (5.2, 2)];
+        // A client launched with --connect must not also host: it is already
+        // joining someone else's server.
+        let steps: &[(f64, u8)] = if self.joined_remote || std::env::var_os("HARDPOINT_NOHOST").is_some() {
+            if self.joined_remote { &[(4.5, 2)] } else { &[] }
+        } else {
+            &[(2.0, 0), (4.5, 1), (5.2, 2)]
+        };
         while self.script_step < steps.len() && now >= steps[self.script_step].0 {
             match steps[self.script_step].1 {
                 0 => {
@@ -597,6 +616,25 @@ impl App {
                 self.input.add_motion((t * 0.35).sin() as f32 * 260.0 * step, 0.0);
             }
         }
+    }
+
+    /// Prints frame-time percentiles. Averages hide hitching; the low
+    /// percentiles are what a player actually feels.
+    fn report_bench(&mut self) {
+        let Some(mut b) = self.bench.take() else { return };
+        if b.len() < 32 { return; }
+        let n = b.len();
+        let total: f64 = b.iter().map(|v| *v as f64).sum();
+        b.sort_by(|a, c| a.partial_cmp(c).unwrap());
+        let pct = |p: f64| b[((n as f64 * p) as usize).min(n - 1)];
+        println!(
+            "[bench] {} frames  avg {:.1} fps  median {:.1}  1% low {:.1}  0.1% low {:.1}",
+            n,
+            n as f64 / total,
+            1.0 / pct(0.50) as f64,
+            1.0 / pct(0.99) as f64,
+            1.0 / pct(0.999) as f64,
+        );
     }
 
     fn write_pending_shot(&mut self) {
@@ -943,6 +981,7 @@ impl ApplicationHandler for Launcher {
             Ok(mut app) => {
                 if let Some(addr) = self.connect_to.take() {
                     app.connect_address = addr.clone();
+                    app.joined_remote = true;
                     app.connect_to(&addr, "");
                 }
                 self.app = Some(app);

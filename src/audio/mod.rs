@@ -12,7 +12,7 @@ pub mod synth;
 use crate::assets::materials::Surface;
 use crate::core::Rng;
 use crate::game::events::AnnounceLine;
-use crate::game::weapons::{WeaponId, ALL_WEAPONS, WEAPON_COUNT};
+use crate::game::weapons::{WeaponId, ALL_WEAPONS};
 use crate::maps::{Ambience, MusicTrack};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use glam::Vec3;
@@ -48,7 +48,6 @@ enum Command {
         handle: u32,
     },
     SetCategory(u8, f32),
-    SetHandleGain(u32, f32),
     Stop(u32),
     StopCategory(u8),
 }
@@ -119,14 +118,6 @@ impl Mixer {
                 }
                 Command::SetCategory(c, v) => {
                     if (c as usize) < CATEGORIES { self.category_gain[c as usize] = v.clamp(0.0, 1.5); }
-                }
-                Command::SetHandleGain(handle, g) => {
-                    for v in self.voices.iter_mut() {
-                        if v.active && v.handle == handle {
-                            v.gain_l = g;
-                            v.gain_r = g;
-                        }
-                    }
                 }
                 Command::Stop(handle) => {
                     for v in self.voices.iter_mut() {

@@ -137,7 +137,7 @@ pub fn render(track: MusicTrack, sample_rate: f32) -> Clip {
     let mut out = vec![0.0f32; n];
     let mut rng = Rng::seeded(0xC0DE_0000 ^ track as u32);
 
-    let mut add = |buf: &mut Vec<f32>, at: f32, clip: &[f32], gain: f32| {
+    let add = |buf: &mut Vec<f32>, at: f32, clip: &[f32], gain: f32| {
         let start = (at * sample_rate) as usize;
         for (i, s) in clip.iter().enumerate() {
             let idx = start + i;

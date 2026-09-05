@@ -12,7 +12,7 @@ use crate::assets::font::{FontAtlas, ATLAS_H, ATLAS_W};
 use crate::assets::meshgen::{self, MapMesh, PartInstance, PartVertex, WorldVertex};
 use crate::assets::texgen::{self, Sprite, TextureArray};
 use crate::maps::Env;
-use crate::math::{Aabb, Frustum};
+use crate::math::Frustum;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use gpu::{DynBuffer, Gpu, SceneTargets, DEPTH_FORMAT, SCENE_FORMAT};

@@ -5,7 +5,7 @@
 //! setting the game no longer understands is ignored rather than fatal.
 
 use crate::core::kv::{data_dir, Kv};
-use crate::input::{Action, Binding, Bindings, ALL_ACTIONS};
+use crate::input::{Binding, Bindings, ALL_ACTIONS};
 use std::path::PathBuf;
 
 /// Quality tiers used by the texture, shadow and effects settings.

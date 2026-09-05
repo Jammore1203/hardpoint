@@ -557,15 +557,18 @@ impl<'a> HudFrame<'a> {
 }
 
 /// Draws the scoreboard over the top of everything.
-pub fn draw_scoreboard(p: &mut Painter, client: &Client, mode: ModeId, now: f64) {
+/// `top` and `bottom` are the margins the caller wants left clear: the results
+/// screen puts a title above the table and a summary below it, the in-game
+/// overlay uses neither.
+pub fn draw_scoreboard(p: &mut Painter, client: &Client, mode: ModeId, now: f64, top: f32, bottom: f32) {
     let w = p.design_width();
     let h = p.design_height();
     p.dim(0.72);
 
     let panel_w = (w * 0.78).min(1180.0);
     let x = (w - panel_w) * 0.5;
-    let y = 90.0;
-    let panel_h = h - 200.0;
+    let y = top;
+    let panel_h = (h - top - bottom).max(240.0);
     p.panel(x, y, panel_w, panel_h);
 
     let mi = &client.match_info;

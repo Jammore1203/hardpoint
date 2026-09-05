@@ -1,32 +1,8 @@
-//! HARDPOINT: OPERATION IRONVEIL
-//!
-//! A multiplayer first-person shooter in the register of the early 2000s
-//! console era: fast movement, tight maps, chunky geometry, and an
-//! authoritative server behind every match including the ones you host
-//! yourself.
+//! The game binary: a window, or one of the headless tools.
 
-#[macro_use]
-mod macros;
-
-mod app;
-mod assets;
-mod audio;
-mod bots;
-mod core;
-mod devtools;
-mod game;
-mod input;
-mod maps;
-mod math;
-mod modes;
-mod net;
-mod progression;
-mod render;
-mod settings;
-mod ui;
-
-use progression::Progression;
-use settings::Settings;
+use hardpoint::progression::Progression;
+use hardpoint::settings::Settings;
+use hardpoint::{app, devtools, net};
 
 const USAGE: &str = "\
 HARDPOINT: OPERATION IRONVEIL

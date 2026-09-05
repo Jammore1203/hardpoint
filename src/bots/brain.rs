@@ -289,14 +289,35 @@ impl Bot {
 
         match mode.id() {
             ModeId::Domination => {
-                // Head for whichever point is closest and not already ours.
                 let hud = mode.hud_state(world, &crate::modes::MatchState::new(ModeId::Domination));
+                let held = (0..3)
+                    .filter(|i| Team::from_u8(hud[*i] & 0x7F) == me.team)
+                    .count();
+                // Two of three already wins the tick, so past that a bot's job
+                // is to go and find the enemy. Without this, both teams sit on
+                // their own flags and a match can run its whole clock with
+                // nobody meeting anybody.
+                let hunting = held >= 2;
+
                 let mut best = (self.goal_pos, f32::MAX);
                 for (i, obj) in world.map.domination.iter().enumerate().take(3) {
                     let owner = Team::from_u8(hud[i] & 0x7F);
+                    let contested = hud[i] & 0x80 != 0;
                     let d = (obj.pos - my_pos).length();
-                    let want = if owner == me.team { d * 2.2 } else { d };
+                    let want = if contested {
+                        d * 0.5                      // someone is on it: that is the fight
+                    } else if owner == me.team {
+                        d * if hunting { 4.0 } else { 2.2 }
+                    } else {
+                        d                            // neutral or theirs: take it
+                    };
                     if want < best.1 { best = (obj.pos, want); }
+                }
+
+                if hunting {
+                    if let Some(p) = self.nearest_enemy_pos(world, my_pos) {
+                        if (p - my_pos).length() < best.1 { best = (p, 0.0); }
+                    }
                 }
                 best.0
             }
@@ -314,15 +335,21 @@ impl Bot {
             _ => {
                 // Deathmatch: head toward the noisiest part of the map, which
                 // in practice means toward the nearest enemy we know about.
-                let mut best = (self.wander_target(world), f32::MAX);
-                for other in world.active_players() {
-                    if !other.alive || !world.hostile(self.slot, other.slot) { continue; }
-                    let d = (other.mv.pos - my_pos).length();
-                    if d < best.1 { best = (other.mv.pos, d); }
-                }
-                best.0
+                self.nearest_enemy_pos(world, my_pos)
+                    .unwrap_or_else(|| self.wander_target(world))
             }
         }
+    }
+
+    /// The closest living enemy, if there is one.
+    fn nearest_enemy_pos(&self, world: &World, from: Vec3) -> Option<Vec3> {
+        let mut best: Option<(Vec3, f32)> = None;
+        for other in world.active_players() {
+            if !other.alive || !world.hostile(self.slot, other.slot) { continue; }
+            let d = (other.mv.pos - from).length();
+            if best.is_none_or(|(_, bd)| d < bd) { best = Some((other.mv.pos, d)); }
+        }
+        best.map(|(p, _)| p)
     }
 
     fn wander_target(&mut self, world: &World) -> Vec3 {
