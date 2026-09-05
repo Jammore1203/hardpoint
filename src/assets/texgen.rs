@@ -400,7 +400,7 @@ fn gen_granular(p: &mut Painter, tint: [u8; 3], cells: f32, contrast: f32, seed:
     let stony = smoothstep(0.14, 0.34, contrast);
     // The coarse layer only exists for genuinely stony ground, and even then
     // at a period chosen not to echo the fine layer.
-    let big = (cells * 0.34).max(5.0);
+    let big = (cells * 0.46).max(9.0);
     let cells = cells.min(1.0 / (tx * 3.0));
     p.shade(tint, |u, v, _, _| {
         let (f1, f2) = worley2(u * cells, v * cells, cells as i32, seed);
@@ -673,7 +673,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         BrickRed => gen_brick(&mut p, tint, 10.0, [168, 162, 150], seed),
         BrickPale => gen_brick(&mut p, tint, 9.0, [176, 172, 160], seed),
         Plaster => gen_rough(&mut p, tint, 0.06, 0.16, seed),
-        StoneWall => gen_granular(&mut p, tint, 15.0, 0.26, seed),
+        StoneWall => gen_brick(&mut p, tint, 7.0, [148, 144, 136], seed),
         MetalPanel => gen_panel(&mut p, tint, 3.0, true, 0.0, seed),
         MetalRust => gen_panel(&mut p, tint, 2.0, true, 0.9, seed),
         MetalPlateDiamond => gen_grid(&mut p, tint, 8.0, 0.16, false, seed),
@@ -683,19 +683,19 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         PipeMetal => gen_corrugated(&mut p, tint, 3.0, seed),
         ShippingRed | ShippingBlue | ShippingGreen => gen_corrugated(&mut p, tint, 9.0, seed),
         Sand => gen_granular(&mut p, tint, 22.0, 0.16, seed),
-        SandRock => gen_granular(&mut p, tint, 17.0, 0.24, seed),
+        SandRock => gen_granular(&mut p, tint, 22.0, 0.20, seed),
         Dirt => gen_granular(&mut p, tint, 21.0, 0.22, seed),
-        Gravel => gen_granular(&mut p, tint, 30.0, 0.30, seed),
+        Gravel => gen_granular(&mut p, tint, 30.0, 0.32, seed),
         Grass => gen_foliage(&mut p, tint, false, seed),
         JungleFloor => gen_foliage(&mut p, tint, false, seed ^ 0x11),
         Snow => gen_granular(&mut p, tint, 18.0, 0.10, seed),
-        SnowRock => gen_granular(&mut p, tint, 16.0, 0.21, seed),
+        SnowRock => gen_granular(&mut p, tint, 22.0, 0.18, seed),
         Asphalt => gen_granular(&mut p, tint, 30.0, 0.14, seed),
         ConcreteFloor => gen_rough(&mut p, tint, 0.09, 0.18, seed),
         TileFloor => gen_grid(&mut p, tint, 4.0, 0.03, false, seed),
         WoodFloor => gen_wood(&mut p, tint, 6.0, false, seed),
         Mud => gen_granular(&mut p, tint, 18.0, 0.19, seed),
-        Cobble => gen_granular(&mut p, tint, 13.0, 0.30, seed),
+        Cobble => gen_granular(&mut p, tint, 24.0, 0.27, seed),
         WoodCrate => gen_wood(&mut p, tint, 4.0, true, seed),
         WoodPlank => gen_wood(&mut p, tint, 5.0, false, seed),
         Sandbag => gen_woven(&mut p, tint, 5.0, 0.34, seed),
@@ -716,7 +716,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         RoofTile => gen_grid(&mut p, tint, 8.0, 0.06, false, seed),
         RoofMetal => gen_corrugated(&mut p, tint, 14.0, seed),
         Foliage => gen_foliage(&mut p, tint, true, seed),
-        Rock => gen_granular(&mut p, tint, 12.0, 0.30, seed),
+        Rock => gen_granular(&mut p, tint, 16.0, 0.26, seed),
         Ice => gen_water(&mut p, tint, seed),
         WaterSurface => gen_water(&mut p, tint, seed ^ 0x9),
         Fabric => gen_woven(&mut p, tint, 10.0, 0.14, seed),
