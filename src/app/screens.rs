@@ -13,7 +13,8 @@ use crate::input::{Action, Binding, ALL_ACTIONS};
 use crate::maps::ALL_MAPS;
 use crate::modes::{ModeId, Phase, ALL_MODES};
 use crate::progression::{challenges, rank_name};
-use crate::ui::draw::Align;
+use crate::ui::draw::{Align, Painter};
+use glam::Vec3;
 use crate::ui::theme::{self, Color};
 use crate::ui::widgets::{Nav, Ui, UiSound};
 
@@ -69,7 +70,7 @@ pub fn draw(app: &mut App, dt: f32, now: f64) {
             Screen::Connecting => connecting(&mut ui, client.as_ref(), &mut intents),
             Screen::Loading => loading(&mut ui, loading_message),
             Screen::Lobby => lobby(&mut ui, client.as_ref(), host, settings, &mut intents),
-            Screen::Loadout => loadout_screen(&mut ui, loadout, progression, &mut intents),
+            Screen::Loadout => loadout_screen(&mut ui, loadout, progression, now as f32, &mut intents),
             Screen::Settings => settings_screen(&mut ui, settings, *scroll, &mut intents),
             Screen::Controls => controls_screen(&mut ui, settings, *rebinding, *scroll, &mut intents),
             Screen::Career => career_screen(&mut ui, progression, *scroll, &mut intents),
@@ -584,6 +585,7 @@ fn loadout_screen(
     ui: &mut Ui,
     loadout: &mut Loadout,
     prog: &crate::progression::Progression,
+    now: f32,
     out: &mut Vec<Intent>,
 ) {
     let (x, mut y, w) = menu_frame(ui, "LOADOUT", "APPLIES ON YOUR NEXT SPAWN");
@@ -670,11 +672,18 @@ fn loadout_screen(
     if ui.nav.back { out.push(Intent::Back); }
     y += 68.0;
 
-    // Full numbers for the primary. The bars above give a feel; this is what
-    // lets someone actually compare two rifles.
+    // A turning model of the primary, beside its full numbers. The bars above
+    // give a feel; this is what lets someone see and compare what they picked.
     let d = loadout.primary.def();
-    let ph = 150.0;
+    let ph = 200.0;
     ui.p.panel(x, y, w, ph);
+    let pv_w = 300.0;
+    let pv_x = x + w - pv_w - 8.0;
+    ui.p.rect(pv_x, y + 8.0, pv_w, ph - 16.0, theme::PANEL_DEEP);
+    ui.p.outline(pv_x, y + 8.0, pv_w, ph - 16.0, 1.0, theme::BORDER_DIM);
+    weapon_preview(&mut ui.p, pv_x, y + 8.0, pv_w, ph - 16.0, loadout.primary, now);
+    ui.p.text_aligned(pv_x + pv_w * 0.5, y + ph - 30.0, theme::SMALL, theme::TEXT_DIM,
+                      loadout.primary.name(), Align::Center);
     ui.p.text(x + 16.0, y + 14.0, theme::SMALL, theme::ACCENT, "SPECIFICATIONS");
     let specs = [
         ("DAMAGE", format!("{:.0} - {:.0}", d.damage, d.damage_far)),
@@ -688,10 +697,10 @@ fn loadout_screen(
         ("MOBILITY", format!("{:.0}%", d.move_scale * 100.0)),
         ("AIM TIME", format!("{:.2} S", d.ads_time)),
     ];
-    let cw = (w - 32.0) / 5.0;
+    let cw = (w - pv_w - 48.0) / 4.0;
     for (i, (label, value)) in specs.iter().enumerate() {
-        let cx = x + 16.0 + (i % 5) as f32 * cw;
-        let cy = y + 48.0 + (i / 5) as f32 * 48.0;
+        let cx = x + 16.0 + (i % 4) as f32 * cw;
+        let cy = y + 48.0 + (i / 4) as f32 * 46.0;
         ui.p.text(cx, cy, theme::TINY, theme::TEXT_FAINT, label);
         ui.p.text(cx, cy + 18.0, theme::SMALL, theme::TEXT, value);
     }
@@ -749,6 +758,97 @@ fn cycle_weapon(
         }
     }
     false
+}
+
+/// Draws a slowly turning model of a weapon, projected by hand into the
+/// interface pass.
+///
+/// The alternative is a second render pass and a camera for one panel; this is
+/// half a dozen boxes, painter-sorted, which is exactly how the era would have
+/// done it and costs nothing. Being able to see what you have picked is the
+/// whole point of a loadout screen.
+fn weapon_preview(p: &mut Painter, x: f32, y: f32, w: f32, h: f32, weapon: WeaponId, t: f32) {
+    use crate::assets::meshgen;
+    let def = weapon.def();
+    let parts = meshgen::weapon_parts(def.shape);
+    let scale = meshgen::weapon_model_scale(def);
+
+    // Swing through a three-quarter view rather than spinning: a full turn
+    // spends a third of its time pointing the barrel at the viewer, where a
+    // rifle is a dot.
+    let yaw = 1.30 + (t * 0.5).sin() * 0.42;
+    let pitch = -0.26 + (t * 0.31).sin() * 0.05;
+    let (sy, cy) = yaw.sin_cos();
+    let (sp, cp) = pitch.sin_cos();
+    // Model space is -Z forward; lay the weapon across the panel.
+    let rotate = |v: Vec3| -> Vec3 {
+        let a = Vec3::new(v.x * cy + v.z * sy, v.y, -v.x * sy + v.z * cy);
+        Vec3::new(a.x, a.y * cp - a.z * sp, a.y * sp + a.z * cp)
+    };
+
+    // Fit the model to the panel from its own bounds, so a pistol fills the
+    // frame as well as a machine gun does, and centre it on those bounds
+    // rather than on the grip.
+    let mut lo = Vec3::splat(f32::MAX);
+    let mut hi = Vec3::splat(f32::MIN);
+    for part in parts {
+        let o = part.offset * scale;
+        let sz = part.size * scale * 0.5;
+        lo = lo.min(o - sz);
+        hi = hi.max(o + sz);
+    }
+    let size = hi - lo;
+    let mid = (hi + lo) * 0.5;
+    let zoom = ((w * 0.80) / size.z.max(size.x).max(0.01))
+        .min((h * 0.52) / size.y.max(0.01));
+    let cx = x + w * 0.5;
+    let cyy = y + h * 0.5;
+
+    // Painter's algorithm over every face of every box: at six faces a box and
+    // at most seven boxes this is a few dozen quads.
+    let mut faces: Vec<(f32, [[f32; 2]; 4], Color)> = Vec::with_capacity(48);
+    for part in parts {
+        let centre = part.offset * scale;
+        let half = part.size * scale * 0.5;
+        let tint = part.mat.tint();
+        let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
+        for axis in 0..3usize {
+            for positive in [false, true] {
+                let mut n = Vec3::ZERO;
+                n[axis] = if positive { 1.0 } else { -1.0 };
+                let (a1, a2) = match axis { 0 => (1, 2), 1 => (2, 0), _ => (0, 1) };
+                let mut corners = [Vec3::ZERO; 4];
+                for (i, (s1, s2)) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                    .iter().enumerate()
+                {
+                    let mut v = Vec3::ZERO;
+                    v[axis] = n[axis] * half[axis];
+                    v[a1] = s1 * half[a1];
+                    v[a2] = s2 * half[a2];
+                    corners[i] = rotate(centre + v - mid);
+                }
+                let rn = rotate(n);
+                // Back-face cull against the viewer looking down -Z.
+                if rn.z >= -0.01 { continue; }
+                // Flat directional shade, the era's whole lighting model.
+                let lit = (0.42 + rn.dot(Vec3::new(-0.35, 0.72, -0.60).normalize()).max(0.0) * 0.72)
+                    .clamp(0.0, 1.25);
+                let colour = [base[0] * lit, base[1] * lit, base[2] * lit, 1.0];
+                let depth = corners.iter().map(|c| c.z).sum::<f32>() * 0.25;
+                let pts = [
+                    [cx + corners[0].x * zoom, cyy - corners[0].y * zoom],
+                    [cx + corners[1].x * zoom, cyy - corners[1].y * zoom],
+                    [cx + corners[2].x * zoom, cyy - corners[2].y * zoom],
+                    [cx + corners[3].x * zoom, cyy - corners[3].y * zoom],
+                ];
+                faces.push((depth, pts, colour));
+            }
+        }
+    }
+    faces.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for (_, pts, colour) in faces {
+        p.quad(pts, colour);
+    }
 }
 
 /// Draws the class label, blurb and stat bars for one weapon. Returns the
