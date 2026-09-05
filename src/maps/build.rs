@@ -386,8 +386,22 @@ impl MapBuilder {
     }
 
     /// A low sandbag emplacement: cover you can shoot over when standing.
+    ///
+    /// Built as a stepped stack rather than a single course. A metre-high
+    /// block is above the step height, so navigation offers it as a climb and
+    /// a player walking that link wedges against the face of it; a half-height
+    /// course on each long side makes the same emplacement something you can
+    /// actually walk up, which is also how sandbags are stacked.
     pub fn sandbags(&mut self, x: f32, y: f32, z: f32, sx: f32, sz: f32) {
         self.boxx(x, y, z, sx, 1.05, sz, Mat::Sandbag).with_scale(1.2).with_top(Mat::Sandbag);
+        let step = 0.62f32;
+        if sx >= sz {
+            self.boxx(x, y, z - step, sx, 0.52, step, Mat::Sandbag).with_scale(1.2).with_top(Mat::Sandbag);
+            self.boxx(x, y, z + sz, sx, 0.52, step, Mat::Sandbag).with_scale(1.2).with_top(Mat::Sandbag);
+        } else {
+            self.boxx(x - step, y, z, step, 0.52, sz, Mat::Sandbag).with_scale(1.2).with_top(Mat::Sandbag);
+            self.boxx(x + sx, y, z, step, 0.52, sz, Mat::Sandbag).with_scale(1.2).with_top(Mat::Sandbag);
+        }
     }
 
     /// Concrete barrier line, the standard chest-high cover unit.

@@ -1108,6 +1108,30 @@ fn whiteout(b: &mut MapBuilder) {
         b.boxx(x, 0.0, z, sx, 1.35, sz, Mat::Snow).with_scale(3.0).with_top(Mat::Snow);
     }
 
+    // --- Drifts and plant, because a berm is chest high and the perimeter of
+    //     this map ran eighty-eight metres. Snow piles high enough to stop a
+    //     sightline, and the vehicles that made them.
+    for (x, z, sx, sz, hgt) in [
+        (-34.0f32, -34.0f32, 9.0f32, 5.0f32, 3.0f32),
+        (-12.0, -34.0, 5.0, 9.0, 2.6),
+        (10.0, -34.0, 9.0, 5.0, 3.0),
+        (32.0, -32.0, 5.0, 9.0, 2.6),
+        (-36.0, 24.0, 9.0, 5.0, 2.6),
+        (-8.0, 30.0, 5.0, 9.0, 3.0),
+        (16.0, 30.0, 9.0, 5.0, 2.6),
+        (34.0, 22.0, 5.0, 9.0, 3.0),
+        (-42.0, -4.0, 5.0, 9.0, 2.8),
+        (38.0, -10.0, 5.0, 9.0, 2.8),
+    ] {
+        b.boxx(x, 0.0, z, sx, hgt, sz, Mat::Snow).with_scale(3.4).with_top(Mat::Snow);
+        b.boxx(x + sx * 0.2, hgt, z + sz * 0.2, sx * 0.6, hgt * 0.35, sz * 0.6, Mat::Snow).with_scale(3.4);
+    }
+    // Vehicle park: a shelter and two tracked vehicles under the drifts.
+    b.room(-22.0, -34.0, 14.0, 10.0, 0.0, 4.0, DOOR_PZ | DOOR_PX, Mat::Corrugated, Mat::ConcreteFloor, true);
+    truck(b, -16.0, 0.0, -28.0, true, Mat::CamoWinter);
+    truck(b, 22.0, 0.0, -26.0, false, Mat::CamoWinter);
+    for i in 0..4 { b.barrel(24.0 + i as f32 * 1.0, 0.0, 14.0, Mat::BarrelRust); }
+
     // --- Radar mast: four storeys, the map's power position, two ways up.
     b.tower(-4.0, -6.0, 8.0, 8.0, 0.0, 4, Mat::MetalPanel, Mat::MetalPlateDiamond, Mat::MetalPlateDiamond);
     // An external gantry rings the mast at the second storey and is reached by
@@ -1144,6 +1168,11 @@ fn whiteout(b: &mut MapBuilder) {
     for (a, bx) in [(-30.0f32, -30.4f32), (-24.5, -0.4), (5.5, 14.5), (20.4, 24.0)] {
         if bx > a + 0.05 { b.ceiling(a, -3.0, bx - a, 7.0, ty + 3.0, Mat::Bunker); }
     }
+    // Blast doors part way along, offset from each other. Fifty-four metres of
+    // straight tunnel is a better sightline than anything on the surface,
+    // which is backwards for a route sold as the way to avoid one.
+    b.wall_z_door(-14.0, -3.0, 7.0, ty, 3.0, 1.8, Mat::Bunker);
+    b.wall_z_door(9.0, -3.0, 7.0, ty, 3.0, 5.2, Mat::Bunker);
     for i in 0..6 { b.decor(-27.0 + i as f32 * 9.0, ty + 2.6, -2.0, 1.6, 0.3, 1.6, Mat::WindowLit); }
     // Three staircases climb out of the tunnel along its length, leaving the
     // walkway beside them clear.
@@ -1589,6 +1618,36 @@ fn foundry(b: &mut MapBuilder) {
         // position. The catwalks above are where height is fought over.
     }
 
+    // --- Ladle cars, moulds and stock, in the aisles between the furnaces and
+    //     the shell. Four furnaces in four quadrants leaves a sixty-four metre
+    //     ring around them and a clear diagonal through the middle, which is
+    //     the whole hall from two positions.
+    for (x, z, sx, sz, hgt, mat) in [
+        (-30.0f32, -25.0f32, 6.0f32, 9.0f32, 2.8f32, Mat::MetalRust),
+        (-30.0, 20.0, 6.0, 9.0, 2.4, Mat::Cinderblock),
+        (24.0, -22.0, 6.0, 9.0, 2.4, Mat::Cinderblock),
+        (24.0, 16.0, 6.0, 9.0, 2.8, Mat::MetalRust),
+        (-13.0, -30.0, 9.0, 6.0, 2.8, Mat::Cinderblock),
+        (20.0, -30.0, 9.0, 6.0, 2.4, Mat::MetalRust),
+        (-22.0, 24.0, 9.0, 6.0, 2.4, Mat::MetalRust),
+        (11.0, 24.0, 9.0, 6.0, 2.8, Mat::Cinderblock),
+    ] {
+        b.boxx(x, 0.0, z, sx, hgt, sz, mat).with_scale(2.8);
+        b.boxx(x + sx * 0.15, hgt, z + sz * 0.15, sx * 0.7, 0.9, sz * 0.7, Mat::MetalPanel).with_scale(2.0);
+    }
+    // Mould stacks in the four gaps between a furnace and the pour channels,
+    // which is where the corner-to-corner diagonals ran.
+    for (x, z) in [(-10.0f32, -10.0f32), (6.0, -10.0), (-10.0, 6.0), (6.0, 6.0)] {
+        b.crates(x, 0.0, z, 1.6, 2, Mat::MetalRust);
+        b.half_wall(x - 3.4, 0.0, z + 1.8, 5.0, true, Mat::Concrete);
+    }
+
+    // --- Pattern shop in the south-west corner: the hall's one interior.
+    b.room(-31.0, 21.0, 13.0, 10.0, 0.0, 4.2, DOOR_PX | DOOR_NZ, Mat::Cinderblock, Mat::ConcreteFloor, true);
+    b.wall_x_window(-31.0, 21.0, 13.0, 0.0, 4.2, 1.1, 2.1, Mat::Cinderblock);
+    b.crates(-27.0, 0.0, 26.0, 1.3, 2, Mat::WoodCrate);
+    for i in 0..4 { b.barrel(-21.0, 0.0, 23.0 + i as f32 * 1.0, Mat::BarrelRust); }
+
     // --- Two catwalk levels.
     let l1 = 5.4;
     // A square ring of walkways, entered at four points around the hall.
@@ -1634,9 +1693,9 @@ fn foundry(b: &mut MapBuilder) {
     }
     for i in 0..10 { b.barrel(-29.0 + (i % 5) as f32 * 1.1, 0.0, 27.0 + (i / 5) as f32 * 1.1, Mat::BarrelRust); }
 
-    b.spawn_cluster(-27.0, 0.0, 27.0, 30.0, Team::Phantom, 8, 3.6, true);
+    b.spawn_cluster(-26.0, 0.0, 16.0, 30.0, Team::Phantom, 8, 3.6, true);
     b.spawn_cluster(-28.0, 0.0, -6.0, 90.0, Team::Phantom, 4, 3.0, false);
-    b.spawn_cluster(27.0, 0.0, -27.0, -150.0, Team::Vanguard, 8, 3.6, true);
+    b.spawn_cluster(26.0, 0.0, -16.0, -150.0, Team::Vanguard, 8, 3.6, true);
     b.spawn_cluster(28.0, 0.0, 6.0, -90.0, Team::Vanguard, 4, 3.0, false);
     b.spawn_cluster(-27.0, 0.0, -27.0, 45.0, Team::None, 4, 3.6, false);
     b.spawn_cluster(27.0, 0.0, 27.0, -135.0, Team::None, 4, 3.6, false);
@@ -1680,6 +1739,30 @@ fn saltbite(b: &mut MapBuilder) {
     b.brushes.last_mut().unwrap().flags = BrushFlags::NOSHADOW | BrushFlags::NONAV;
     // Rock shelf the fort stands on.
     b.floor(-26.0, -24.0, 52.0, 48.0, 0.0, Mat::Rock);
+
+    // --- Groynes and wreckage in the surf. The water ring outside the fort is
+    //     the only continuous route round it, and it ran the full eighty
+    //     metres in both directions with a flat bottom.
+    for (x, z, sx, sz) in [
+        (-34.0f32, -33.0f32, 4.0f32, 10.0f32),
+        (-34.0, 22.0, 4.0, 12.0),
+        (30.0, -34.0, 4.0, 12.0),
+        (30.0, 24.0, 4.0, 10.0),
+        (-14.0, -33.0, 11.0, 4.0),
+        (12.0, -33.0, 11.0, 4.0),
+        (-16.0, 29.0, 11.0, 4.0),
+        (10.0, 29.0, 11.0, 4.0),
+    ] {
+        b.boxx(x, -1.4, z, sx, 3.0, sz, Mat::Rock).with_scale(3.0);
+        b.boxx(x + sx * 0.25, 1.6, z + sz * 0.25, sx * 0.5, 0.9, sz * 0.5, Mat::Rock).with_scale(2.4);
+    }
+    // A grounded landing craft on the north beach, and a shattered jetty south.
+    b.boxc(-2.0, -1.3, -30.0, 12.0, 3.2, 5.0, Mat::HullPainted).with_scale(3.0);
+    b.boxc(-6.0, 1.9, -30.0, 4.0, 1.6, 4.0, Mat::HullPainted).with_scale(2.0);
+    for i in 0..6 {
+        b.pillar(-16.0 + i as f32 * 6.0, -1.4, 32.0, 1.2, 3.4, Mat::WoodPlank);
+    }
+    b.boxc(-1.0, 2.0, 32.0, 32.0, 0.4, 3.4, Mat::WoodPlank).with_scale(2.0);
 
     // --- Outer curtain wall: a walkable rampart at 6 m with a parapet.
     let (fx0, fz0, fx1, fz1) = (-24.0f32, -22.0f32, 24.0f32, 22.0f32);
@@ -1843,6 +1926,33 @@ fn deepwell(b: &mut MapBuilder) {
         };
         b.room(*x, *z, *sx, *sz, 0.0, ch, doors, Mat::Bunker, Mat::TileFloor, false);
     }
+    // Blast bulkheads across the ring corridors, offset from each other.
+    //
+    // The plan is a grid of blocks, so every corridor between them ran the
+    // full sixty metres of the deck. A bunker should be the map where you
+    // cannot see anything coming, and it was the map where you could see
+    // everything coming for as far as the deck was long.
+    for (x, z, len, along_x, door) in [
+        (-30.0f32, -15.0f32, 6.0f32, true, 1.6f32),
+        (-30.0, 16.0, 6.0, true, 4.4),
+        (-12.0, -18.0, 6.0, true, 4.4),
+        (-12.0, 20.0, 6.0, true, 1.6),
+        (6.0, -20.0, 6.0, true, 1.6),
+        (6.0, 18.0, 6.0, true, 4.4),
+        (24.0, -14.0, 6.0, true, 4.4),
+        (24.0, 15.0, 6.0, true, 1.6),
+        (-15.0, -30.0, 6.0, false, 4.4),
+        (16.0, -30.0, 6.0, false, 1.6),
+        (-18.0, -12.0, 6.0, false, 1.6),
+        (20.0, -12.0, 6.0, false, 4.4),
+        (-20.0, 6.0, 6.0, false, 4.4),
+        (18.0, 6.0, 6.0, false, 1.6),
+        (-14.0, 24.0, 6.0, false, 1.6),
+        (15.0, 24.0, 6.0, false, 4.4),
+    ] {
+        b.divider(x, 0.0, z, len, ch, along_x, door, Mat::Bunker);
+    }
+
     // Command centre in the middle block: screens, a table, hard cover.
     b.decor(-3.0, 0.0, -4.0, 6.0, 1.0, 3.0, Mat::ControlPanel);
     b.boxc(0.0, 0.0, 0.0, 3.4, 1.0, 2.2, Mat::ControlPanel).with_scale(1.4);
@@ -1954,6 +2064,51 @@ fn junction(b: &mut MapBuilder) {
         // A stepped ladder at one end so the roofs are a real, earned route
         // rather than decoration. Shallow enough that bots will use it too.
         b.stairs(x - 3.0, 0.0, z - 0.9, 1.6, 3.0, 4.0, RampAxis::PosX, Mat::MetalPlateDiamond);
+    }
+
+    // --- Aisle obstructions.
+    //
+    // The rakes block the tracks, which was never the problem: the six aisles
+    // between the tracks ran the ninety-two metre length of the yard with
+    // nothing in them at all. Sleeper stacks, spoil heaps and permanent-way
+    // huts, staggered so no two aisles clear at the same place.
+    let aisles = [-27.5f32, -16.5, -5.5, 5.5, 16.5, 27.5];
+    for (i, az) in aisles.iter().enumerate() {
+        let phase = i as f32 * 9.0;
+        let mut x = -40.0 + phase;
+        let mut k = i;
+        while x < 42.0 {
+            match k % 3 {
+                0 => {
+                    // Stacked sleepers: climbable, chest-high on top.
+                    b.boxc(x, 0.0, *az, 5.0, 1.5, 3.4, Mat::WoodPlank).with_scale(1.6);
+                    b.boxc(x + 0.6, 1.5, *az + 0.4, 3.6, 1.3, 2.6, Mat::WoodPlank).with_scale(1.6);
+                }
+                1 => {
+                    // Ballast heap.
+                    b.boxc(x, 0.0, *az, 6.4, 2.0, 4.4, Mat::Gravel).with_scale(2.6);
+                    b.boxc(x, 2.0, *az, 4.4, 1.0, 2.8, Mat::Gravel).with_scale(2.6);
+                }
+                _ => {
+                    // Lineside hut, with a doorway facing along the aisle.
+                    b.room(x - 2.6, *az - 2.6, 5.2, 5.2, 0.0, 3.0, DOOR_NX | DOOR_PX,
+                           Mat::Corrugated, Mat::ConcreteFloor, true);
+                }
+            }
+            x += 26.0;
+            k += 1;
+        }
+    }
+
+    // --- Two loading gantries across the whole yard: cover at ground level
+    //     from their legs, and a route over the top of every rake.
+    for gx in [-24.0f32, 18.0] {
+        for az in aisles {
+            b.pillar(gx, 0.0, az, 1.3, 7.4, Mat::PipeMetal);
+        }
+        b.catwalk(gx - 1.4, 7.4, -32.0, 2.8, 64.0, Mat::Grating, false, &[-27.5, 27.5]);
+        b.access_stair(gx, -32.0, 0.0, 7.4, false, true, Mat::MetalPlateDiamond);
+        b.access_stair(gx, 32.0, 0.0, 7.4, false, false, Mat::MetalPlateDiamond);
     }
 
     // --- Signal tower: the tallest structure, overlooking the whole yard.
@@ -2083,6 +2238,34 @@ fn overpass(b: &mut MapBuilder) {
         step_up(b, bx + 10.2, 0.0, bz + 1.0, 1.8, 5.0, 3.2, RampAxis::NegZ, Mat::MetalPlateDiamond);
         b.sandbags(bx - 2.5, 0.0, bz - 1.5, 15.0, 1.2);
     }
+
+    // --- The deck is two perches, but each one was still a twenty-six metre
+    //     platform with nothing on it and a clear line off both ends. Crashed
+    //     traffic and a fallen sign gantry break both of them up.
+    for (x, z, sx, sz, mat) in [
+        (-27.0f32, 10.0f32, 3.0f32, 5.6f32, Mat::MetalRust),
+        (-15.0, 11.5, 5.6, 3.0, Mat::BluePaint),
+        (-2.0, 9.5, 3.0, 5.6, Mat::RedPaint),
+        (18.0, 11.0, 5.6, 3.0, Mat::MetalRust),
+        (28.0, 9.5, 3.0, 5.6, Mat::MetalPanel),
+    ] {
+        b.boxx(x, dy, z, sx, 1.9, sz, mat).with_scale(2.2);
+    }
+    b.boxc(4.0, dy, 12.5, 2.0, 3.4, 2.0, Mat::PipeMetal);
+    b.boxc(24.0, dy, 12.5, 2.0, 3.4, 2.0, Mat::PipeMetal);
+
+    // --- Verge cover: the two shoulders either side of the road ran the whole
+    //     sixty-eight metres and were the emptiest ground on the map.
+    for (x, z, along) in [
+        (-30.0f32, -22.0f32, false), (-14.0, -24.0, true), (4.0, -22.0, false),
+        (22.0, -24.0, true), (-26.0, 22.0, true), (-6.0, 24.0, false),
+        (14.0, 22.0, true), (28.0, 24.0, false),
+    ] {
+        let (sx, sz) = if along { (9.0, 3.4) } else { (3.4, 9.0) };
+        b.boxc(x, 0.0, z, sx, 2.6, sz, Mat::Concrete).with_scale(2.6);
+    }
+    b.cover_line(-32.0, 0.0, -14.0, 22.0, false, 3, Mat::Concrete);
+    b.cover_line(32.0, 0.0, -8.0, 22.0, false, 3, Mat::Concrete);
 
     // --- Toll booth row: a line of small hard covers across the road.
     for i in 0..4 {
