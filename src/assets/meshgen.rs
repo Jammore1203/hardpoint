@@ -57,6 +57,14 @@ pub enum BakeQuality {
 
 const CLUSTER_SIZE: f32 = 18.0;
 
+/// Target edge length of one baked-lighting cell, in metres. Small enough that
+/// a shadow edge lands where it belongs, large enough that a level is still a
+/// few tens of thousands of vertices.
+const LIGHT_CELL: f32 = 2.2;
+/// Ceiling on the subdivision of any one face, so a stray enormous brush
+/// cannot turn a map load into a minute of ray tracing.
+const MAX_LIGHT_STEPS: usize = 48;
+
 /// The six face directions of a box, as (axis, positive, mask bit).
 const FACES: [(usize, bool, u8); 6] = [
     (0, false, FaceMask::NEG_X),
@@ -119,25 +127,87 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
     }
 
     // ------------------------------------------------------------ lighting
+    //
+    // Faces are subdivided before they are lit. Lighting is baked per vertex,
+    // so an unsubdivided face carries exactly four light samples however large
+    // it is: a ninety-metre apron gets one value at each corner and a linear
+    // ramp between them, which is why every open ground plane in the game read
+    // as a flat wash with a gradient across it. At this cell size the same
+    // apron carries a couple of thousand samples, and the sun shadows and
+    // corner occlusion that the bake already computes actually land somewhere.
     let env = &map.env;
-    let mut vertices: Vec<WorldVertex> = Vec::with_capacity(faces.len() * 4);
-    let mut face_cluster: Vec<(usize, u32, bool)> = Vec::with_capacity(faces.len());
+    let mut vertices: Vec<WorldVertex> = Vec::with_capacity(faces.len() * 9);
+    // Which face each vertex came from, so the bake can be run over the flat
+    // vertex array rather than nested inside the face loop.
+    let mut vertex_face: Vec<u32> = Vec::with_capacity(faces.len() * 9);
+    // (face, base vertex, columns, rows)
+    let mut grids: Vec<(usize, u32, usize, usize)> = Vec::with_capacity(faces.len());
 
     let mut bounds = Aabb::EMPTY;
     for (fi, f) in faces.iter().enumerate() {
+        let c = &f.corners;
+        // Corners run round the quad, so 0->1 and 3->2 are one edge pair.
+        let span_u = ((c[1] - c[0]).length()).max((c[2] - c[3]).length());
+        let span_v = ((c[3] - c[0]).length()).max((c[2] - c[1]).length());
+        let steps = |span: f32| -> usize {
+            ((span / LIGHT_CELL).ceil() as usize).clamp(1, MAX_LIGHT_STEPS)
+        };
+        let (nu, nv) = (steps(span_u), steps(span_v));
+
         let base = vertices.len() as u32;
-        for i in 0..4 {
-            let p = f.corners[i];
-            bounds.union_point(p);
-            let light = bake_light(map, env, p, f.normal, f.mat, f.light_scale, f.no_shadow, quality);
-            vertices.push(WorldVertex {
-                pos: [p.x, p.y, p.z],
-                uv: f.uvs[i],
-                color: light,
-                layer: f.mat.layer(),
-            });
+        for iv in 0..=nv {
+            let tv = iv as f32 / nv as f32;
+            for iu in 0..=nu {
+                let tu = iu as f32 / nu as f32;
+                let top = c[0].lerp(c[1], tu);
+                let bottom = c[3].lerp(c[2], tu);
+                let p = top.lerp(bottom, tv);
+                let uv_top = [
+                    f.uvs[0][0] + (f.uvs[1][0] - f.uvs[0][0]) * tu,
+                    f.uvs[0][1] + (f.uvs[1][1] - f.uvs[0][1]) * tu,
+                ];
+                let uv_bottom = [
+                    f.uvs[3][0] + (f.uvs[2][0] - f.uvs[3][0]) * tu,
+                    f.uvs[3][1] + (f.uvs[2][1] - f.uvs[3][1]) * tu,
+                ];
+                bounds.union_point(p);
+                vertices.push(WorldVertex {
+                    pos: [p.x, p.y, p.z],
+                    uv: [
+                        uv_top[0] + (uv_bottom[0] - uv_top[0]) * tv,
+                        uv_top[1] + (uv_bottom[1] - uv_top[1]) * tv,
+                    ],
+                    color: [128, 128, 128, 255],
+                    layer: f.mat.layer(),
+                });
+                vertex_face.push(fi as u32);
+            }
         }
-        face_cluster.push((fi, base, f.cutout));
+        grids.push((fi, base, nu, nv));
+    }
+
+    // The bake is the expensive half of loading a map - up to five collision
+    // traces a vertex - and every vertex is independent, so it goes wide.
+    {
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .clamp(1, 16);
+        let chunk = vertices.len().div_ceil(workers).max(1);
+        let faces = &faces;
+        let vertex_face = &vertex_face;
+        std::thread::scope(|s| {
+            for (ci, slice) in vertices.chunks_mut(chunk).enumerate() {
+                let first = ci * chunk;
+                s.spawn(move || {
+                    for (k, v) in slice.iter_mut().enumerate() {
+                        let f = &faces[vertex_face[first + k] as usize];
+                        let p = Vec3::from(v.pos);
+                        v.color = bake_light(map, env, p, f.normal, f.mat, f.light_scale, f.no_shadow, quality);
+                    }
+                });
+            }
+        });
     }
 
     // ------------------------------------------------------------ clusters
@@ -150,19 +220,36 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
     let mut cutout_by_cell: Vec<Vec<u32>> = vec![Vec::new(); cell_count];
     let mut cell_bounds: Vec<Aabb> = vec![Aabb::EMPTY; cell_count];
 
-    for (fi, base, cutout) in face_cluster {
+    for (fi, base, nu, nv) in grids {
         let f = &faces[fi];
-        let c = (f.corners[0] + f.corners[2]) * 0.5;
-        let cx = (((c.x - origin.x) / CLUSTER_SIZE) as usize).min(cells_x - 1);
-        let cz = (((c.z - origin.z) / CLUSTER_SIZE) as usize).min(cells_z - 1);
-        let ci = cz * cells_x + cx;
-        for corner in f.corners.iter() { cell_bounds[ci].union_point(*corner); }
-        let list = if cutout { &mut cutout_by_cell[ci] } else { &mut opaque_by_cell[ci] };
-        // Two triangles, wound counter-clockwise when seen from the front.
-        list.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        let stride = (nu + 1) as u32;
+        for iv in 0..nv {
+            for iu in 0..nu {
+                let v00 = base + iv as u32 * stride + iu as u32;
+                let v10 = v00 + 1;
+                let v01 = v00 + stride;
+                let v11 = v01 + 1;
+                // Each subdivided cell is placed in the cluster it actually
+                // sits in rather than the one its parent face's centre does,
+                // which is what lets a floor spanning the level still be
+                // culled a piece at a time.
+                let p00 = Vec3::from(vertices[v00 as usize].pos);
+                let p11 = Vec3::from(vertices[v11 as usize].pos);
+                let c = (p00 + p11) * 0.5;
+                let cx = (((c.x - origin.x) / CLUSTER_SIZE) as usize).min(cells_x - 1);
+                let cz = (((c.z - origin.z) / CLUSTER_SIZE) as usize).min(cells_z - 1);
+                let ci = cz * cells_x + cx;
+                for v in [v00, v10, v01, v11] {
+                    cell_bounds[ci].union_point(Vec3::from(vertices[v as usize].pos));
+                }
+                let list = if f.cutout { &mut cutout_by_cell[ci] } else { &mut opaque_by_cell[ci] };
+                // Two triangles, wound counter-clockwise seen from the front.
+                list.extend_from_slice(&[v00, v10, v11, v00, v11, v01]);
+            }
+        }
     }
 
-    let mut indices: Vec<u32> = Vec::with_capacity(vertices.len() * 3 / 2);
+    let mut indices: Vec<u32> = Vec::with_capacity(vertices.len() * 3);
     let mut clusters = Vec::with_capacity(cell_count);
     for ci in 0..cell_count {
         if opaque_by_cell[ci].is_empty() && cutout_by_cell[ci].is_empty() { continue; }

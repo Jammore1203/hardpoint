@@ -405,6 +405,110 @@ impl MapBuilder {
         self.boxc(cx, y, cz, w, h, w, mat)
     }
 
+    /// Chest-high freestanding cover: the single most useful piece in the set.
+    ///
+    /// Waist height means a standing player can shoot over it and a crouching
+    /// one cannot be shot, which is the whole basis of positional play. A map
+    /// made of full-height walls and open ground has only two states - seen
+    /// and unseen - and plays like a corridor shooter in a field.
+    pub fn half_wall(&mut self, x: f32, y: f32, z: f32, len: f32, along_x: bool, mat: Mat) -> &mut Brush {
+        let (sx, sz) = if along_x { (len, WALL * 1.4) } else { (WALL * 1.4, len) };
+        self.boxx(x, y, z, sx, 1.15, sz, mat).with_scale(2.0)
+    }
+
+    /// A full-height wall that chops a sightline, with a single doorway so the
+    /// space behind it stays connected.
+    ///
+    /// This is the tool for the "too open" problem. Dropping cover onto a big
+    /// field lowers the number of angles slightly; cutting the field into
+    /// rooms with two ways between them changes what the space is.
+    #[allow(clippy::too_many_arguments)]
+    pub fn divider(&mut self, x: f32, y: f32, z: f32, len: f32, h: f32, along_x: bool, door_at: f32, mat: Mat) {
+        if along_x {
+            self.wall_x_door(x, z, len, y, h, door_at, mat);
+        } else {
+            self.wall_z_door(x, z, len, y, h, door_at, mat);
+        }
+    }
+
+    /// A roofed connector between two areas: two walls, a floor and a lid,
+    /// open at both ends.
+    ///
+    /// Every good competitive map is mostly connectors. They are what make a
+    /// rotation cost time, give a defender something to hold that is not a
+    /// sightline across the whole level, and let a team move without being
+    /// seen from three positions at once.
+    #[allow(clippy::too_many_arguments)]
+    pub fn connector(&mut self, x: f32, z: f32, sx: f32, sz: f32, y: f32, h: f32, along_x: bool, wall_mat: Mat, floor_mat: Mat) {
+        self.floor(x, z, sx, sz, y, floor_mat);
+        if along_x {
+            self.wall_x(x, z, sx, y, h, wall_mat);
+            self.wall_x(x, z + sz, sx, y, h, wall_mat);
+        } else {
+            self.wall_z(x, z, sz, y, h, wall_mat);
+            self.wall_z(x + sx, z, sz, y, h, wall_mat);
+        }
+        self.ceiling(x, z, sx, sz, y + h, wall_mat);
+    }
+
+    /// A boxed-in objective site: three walls, one open face, a doorway on one
+    /// of the closed sides, and crates inside to plant behind.
+    ///
+    /// The open face and the doorway deliberately face different directions,
+    /// so attackers arriving by the two routes arrive on different timings and
+    /// a defender cannot watch both from one position.
+    #[allow(clippy::too_many_arguments)]
+    pub fn site_box(&mut self, x: f32, z: f32, sx: f32, sz: f32, y: f32, h: f32,
+                    open: u8, door: u8, wall_mat: Mat, floor_mat: Mat, crate_mat: Mat) {
+        self.floor(x, z, sx, sz, y, floor_mat);
+        let mut face = |bit: u8, along_x: bool, at_far: bool| {
+            if open & bit != 0 { return; }
+            let (wx, wz, len, mid) = if along_x {
+                (x, if at_far { z + sz } else { z }, sx, sx * 0.5)
+            } else {
+                (if at_far { x + sx } else { x }, z, sz, sz * 0.5)
+            };
+            if door & bit != 0 {
+                if along_x { self.wall_x_door(wx, wz, len, y, h, mid, wall_mat); }
+                else { self.wall_z_door(wx, wz, len, y, h, mid, wall_mat); }
+            } else if along_x {
+                self.wall_x(wx, wz, len, y, h, wall_mat);
+            } else {
+                self.wall_z(wx, wz, len, y, h, wall_mat);
+            }
+        };
+        face(DOOR_NZ, true, false);
+        face(DOOR_PZ, true, true);
+        face(DOOR_NX, false, false);
+        face(DOOR_PX, false, true);
+
+        // Cover inside: one stack to plant behind, one to climb.
+        self.crates(x + sx * 0.24, y, z + sz * 0.28, 1.35, 2, crate_mat);
+        self.crates(x + sx * 0.74, y, z + sz * 0.70, 1.25, 1, crate_mat);
+        self.half_wall(x + sx * 0.35, y, z + sz * 0.62, sx * 0.34, true, wall_mat);
+    }
+
+    /// A staggered line of chest-high cover along an axis.
+    ///
+    /// Staggered rather than aligned: a straight row of identical blocks is a
+    /// wall with holes in it, and players read it as one. Offsetting alternate
+    /// pieces gives each one two approaches and a flank.
+    #[allow(clippy::too_many_arguments)]
+    pub fn cover_line(&mut self, x: f32, y: f32, z: f32, len: f32, along_x: bool, count: u32, mat: Mat) {
+        if count == 0 { return; }
+        let step = len / count as f32;
+        let piece = (step * 0.55).clamp(1.4, 4.2);
+        for i in 0..count {
+            let t = (i as f32 + 0.5) * step - piece * 0.5;
+            let off = if i % 2 == 0 { -0.9 } else { 0.9 };
+            if along_x {
+                self.half_wall(x + t, y, z + off, piece, true, mat);
+            } else {
+                self.half_wall(x + off, y, z + t, piece, false, mat);
+            }
+        }
+    }
+
     /// A see-through chain fence: blocks movement, not bullets or sight.
     pub fn fence_x(&mut self, x: f32, y: f32, z: f32, len: f32, h: f32) {
         let b = self.boxx(x, y, z - 0.04, len, h, 0.08, Mat::Mesh);

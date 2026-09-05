@@ -857,18 +857,23 @@ pub fn openness(map_name: &str) -> i32 {
         let gh = (((b.max.z - b.min.z) / 2.0).ceil() as usize).max(1);
         let mut cells = vec![(0u32, 0u32); gw * gh];
 
+        // Where the worst lanes are, so a level author can go and look at one
+        // rather than infer it from a single median.
+        let mut lanes: Vec<(f32, Vec3, Vec3)> = Vec::with_capacity(map.nav.nodes.len());
         for n in map.nav.nodes.iter() {
             let eye = n.pos + Vec3::Y * chest;
             let mut nearest_cover = f32::MAX;
             let mut longest = 0.0f32;
+            let mut longest_dir = Vec3::ZERO;
             for i in 0..RAYS {
                 let a = i as f32 / RAYS as f32 * std::f32::consts::TAU;
                 let dir = Vec3::new(a.cos(), 0.0, a.sin());
                 let hit = map.collision.trace_ray(eye, dir, SIGHT_RANGE, TraceMask::Shot);
                 let d = if hit.hit { (hit.point - eye).length() } else { SIGHT_RANGE };
                 nearest_cover = nearest_cover.min(d);
-                longest = longest.max(d);
+                if d > longest { longest = d; longest_dir = dir; }
             }
+            lanes.push((longest, n.pos, longest_dir));
             sights.push(longest);
             let is_exposed = nearest_cover > COVER_RANGE;
             if is_exposed { exposed += 1; }
@@ -884,6 +889,21 @@ pub fn openness(map_name: &str) -> i32 {
         let p90 = sights.get(sights.len() * 9 / 10).copied().unwrap_or(0.0);
         let pct = if sights.is_empty() { 0.0 } else { exposed as f32 * 100.0 / sights.len() as f32 };
         println!("{:<12} {:>8} {:>8.1}% {:>8.1}m {:>9.1}m", id.name(), sights.len(), pct, med, p90);
+
+        if std::env::var_os("HARDPOINT_LANES").is_some() {
+            // Longest first, but only one report per neighbourhood: a single
+            // bad lane is stood in by a hundred nodes and would otherwise fill
+            // the whole list with the same answer.
+            lanes.sort_by(|a, b| b.0.total_cmp(&a.0));
+            let mut shown: Vec<Vec3> = Vec::new();
+            for (len, pos, dir) in lanes {
+                if shown.iter().any(|p| (*p - pos).length() < 12.0) { continue; }
+                println!("    {:5.1}m from ({:6.1},{:6.1}) y={:5.1} heading ({:5.2},{:5.2})",
+                         len, pos.x, pos.z, pos.y, dir.x, dir.z);
+                shown.push(pos);
+                if shown.len() >= 8 { break; }
+            }
+        }
 
         if std::env::var_os("HARDPOINT_MAPS").is_some() {
             // '#' fully covered, '.' fully exposed, blank for no walkable space.

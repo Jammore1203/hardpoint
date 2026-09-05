@@ -393,18 +393,62 @@ fn ironveil(b: &mut MapBuilder) {
     truck(b, -21.0, 0.05, 16.0, true, Mat::Camo);
     b.crates(-29.0, 0.05, 27.0, 1.2, 2, Mat::WoodCrate);
 
-    // --- Runway furniture: the long lane needs breaks or it is a sniper alley.
-    for (x, z) in [(-30.0, 2.0), (-14.0, -3.0), (2.0, 3.0), (16.0, -2.0), (32.0, 2.0)] {
-        b.barrier(x, 0.05, z, 4.0, 0.7);
-    }
-    b.container(-8.0, 0.05, -10.0, false, Mat::ShippingGreen);
-    b.container(8.0, 0.05, 10.0, false, Mat::ShippingBlue);
-    // A wrecked transport aircraft: the centre landmark and hard cover.
-    b.boxc(0.0, 0.05, 0.0, 14.0, 3.4, 4.2, Mat::HullPainted).with_scale(3.0);
-    b.boxc(-2.0, 3.45, 0.0, 8.0, 1.6, 3.0, Mat::HullPainted).with_scale(3.0);
-    b.decor(-6.0, 1.6, -11.0, 3.0, 0.5, 11.0, Mat::HullPainted);
-    b.decor(3.0, 1.6, 2.0, 3.0, 0.5, 11.0, Mat::HullPainted);
-    step_up(b, 6.0, 0.05, -2.1, 2.0, 3.0, 3.45, RampAxis::NegX, Mat::MetalPlateDiamond);
+    // --- Mid: a maintenance hall straddling the runway.
+    //
+    // A ninety-six metre strip of asphalt with nothing on it is one sightline
+    // and one fight. This building sits across the middle of it, so the strip
+    // becomes two approaches that meet somewhere the whole map cannot see
+    // into, and taking it is worth doing.
+    b.room(-9.0, -10.0, 18.0, 20.0, 0.05, 6.4, DOOR_ALL, Mat::Corrugated, Mat::ConcreteFloor, false);
+    b.ceiling(-9.0, -10.0, 18.0, 20.0, 6.4, Mat::RoofMetal);
+    // A mezzanine over the north half, reached from inside and open to the
+    // south door, which gives the hall a second storey worth contesting.
+    b.catwalk(-8.4, 3.3, -9.2, 16.8, 7.0, Mat::Grating, true, &[-4.0, 3.0]);
+    b.access_stair(-4.0, -2.2, 0.05, 3.3, false, false, Mat::MetalPlateDiamond);
+    b.access_stair(3.0, -2.2, 0.05, 3.3, false, false, Mat::MetalPlateDiamond);
+    b.crates(-5.0, 0.05, 5.0, 1.4, 2, Mat::WoodCrate);
+    b.crates(5.5, 0.05, -6.0, 1.3, 1, Mat::WoodCrate);
+    b.container(0.0, 0.05, 6.5, true, Mat::ShippingGreen);
+    // Window slits either side let the hall watch the strip without owning it.
+    b.wall_z_window(-9.0, -4.0, 8.0, 1.2, 5.2, 0.0, 1.9, Mat::Corrugated);
+    b.wall_z_window(9.0, -4.0, 8.0, 1.2, 5.2, 0.0, 1.9, Mat::Corrugated);
+
+    // --- Revetment lines: the strip is now four chambers, not one lane.
+    //
+    // Staggered gaps. Two openings on the same line of sight would restore
+    // exactly the sightline the walls exist to remove.
+    b.divider(-25.0, 0.0, -15.0, 30.0, 4.6, false, 21.0, Mat::ConcretePanel);
+    b.divider(25.0, 0.0, -15.0, 30.0, 4.6, false, 9.0, Mat::ConcretePanel);
+    b.half_wall(-26.6, 0.05, 6.0, 5.0, false, Mat::Concrete);
+    b.half_wall(26.6, 0.05, -11.0, 5.0, false, Mat::Concrete);
+
+    // --- Flank cover on the two remaining open runs.
+    b.cover_line(-42.0, 0.05, -6.0, 16.0, true, 3, Mat::Concrete);
+    b.cover_line(28.0, 0.05, 8.0, 16.0, true, 3, Mat::Concrete);
+    b.container(-16.0, 0.05, -12.0, false, Mat::ShippingGreen);
+    b.container(16.0, 0.05, 12.0, false, Mat::ShippingBlue);
+    b.container(-16.0, 2.65, -12.0, false, Mat::ShippingRed);
+
+    // A wrecked transport aircraft: still the landmark, now off the centre
+    // line where it breaks the north-west approach instead of standing in the
+    // one place the hall already covers.
+    b.boxc(-26.0, 0.05, -3.0, 13.0, 3.4, 4.2, Mat::HullPainted).with_scale(3.0);
+    b.boxc(-28.0, 3.45, -3.0, 7.5, 1.6, 3.0, Mat::HullPainted).with_scale(3.0);
+    b.decor(-32.0, 1.6, -13.0, 3.0, 0.5, 10.0, Mat::HullPainted);
+    b.decor(-23.0, 1.6, -1.0, 3.0, 0.5, 10.0, Mat::HullPainted);
+    step_up(b, -20.0, 0.05, -5.1, 2.0, 3.0, 3.45, RampAxis::NegX, Mat::MetalPlateDiamond);
+
+    // --- Quadrant walls: the apron either side of the strip was as long a
+    //     run as the strip itself, just at ninety degrees to it.
+    b.divider(-8.0, 0.0, -20.0, 26.0, 4.4, true, 7.0, Mat::Cinderblock);
+    b.divider(-16.0, 0.0, 20.0, 24.0, 4.4, true, 17.0, Mat::Cinderblock);
+
+    // --- Corner outbuildings, so the perimeter is architecture rather than
+    //     a painted line on empty ground.
+    b.room(-47.0, -31.0, 11.0, 13.0, 0.05, 3.6, DOOR_PX | DOOR_PZ, Mat::Cinderblock, Mat::ConcreteFloor, true);
+    b.crates(-43.0, 0.05, -25.0, 1.2, 2, Mat::WoodCrate);
+    b.room(36.0, 18.0, 11.0, 13.0, 0.05, 3.6, DOOR_NX | DOOR_NZ, Mat::Cinderblock, Mat::ConcreteFloor, true);
+    b.crates(41.0, 0.05, 24.0, 1.2, 2, Mat::WoodCrate);
 
     // --- Perimeter revetments so the outer edges are not empty ground.
     for i in 0..7 {
@@ -429,6 +473,12 @@ fn ironveil(b: &mut MapBuilder) {
     b.dom("C", 22.0, 0.1, 25.0, 5.0);
     b.site("A", 29.0, 0.1, -22.0, 4.5);
     b.site("B", -29.0, 0.1, 24.0, 4.5);
+    // Both sites are enclosures with an open face and a door on a different
+    // side, so the two approaches arrive on different timings.
+    b.site_box(23.0, -28.0, 12.0, 12.0, 0.06, 4.4, DOOR_NX, DOOR_PZ,
+               Mat::Cinderblock, Mat::ConcreteFloor, Mat::WoodCrate);
+    b.site_box(-35.0, 18.0, 12.0, 12.0, 0.06, 4.4, DOOR_PX, DOOR_NZ,
+               Mat::Cinderblock, Mat::ConcreteFloor, Mat::WoodCrate);
 
     // --- Pickups.
     supply_ring(b, 0.0, 0.15, 0.0, 8.0);
@@ -496,11 +546,11 @@ fn stormworks(b: &mut MapBuilder) {
     // --- Perimeter mezzanine at 5.6 m, reached by four staircases.
     let mz = 5.6;
     b.catwalk(-35.0, mz, -35.0, 70.0, 3.0, Mat::Grating, true, &[-8.0, -33.5, 33.5]);
-    b.catwalk(-35.0, mz, 32.0, 70.0, 3.0, Mat::Grating, true, &[8.0, -33.5, 33.5]);
+    b.catwalk(-35.0, mz, 32.0, 70.0, 3.0, Mat::Grating, true, &[12.0, -33.5, 33.5]);
     b.catwalk(-35.0, mz, -32.0, 3.0, 64.0, Mat::Grating, false, &[-20.0]);
     b.catwalk(32.0, mz, -32.0, 3.0, 64.0, Mat::Grating, false, &[20.0]);
     b.access_stair(-8.0, -32.0, 0.0, mz, false, false, Mat::MetalPlateDiamond);
-    b.access_stair(8.0, 32.0, 0.0, mz, false, true, Mat::MetalPlateDiamond);
+    b.access_stair(12.0, 32.0, 0.0, mz, false, true, Mat::MetalPlateDiamond);
     b.access_stair(-20.0, -32.0, 0.0, mz, true, false, Mat::MetalPlateDiamond);
     b.access_stair(20.0, 32.0, 0.0, mz, true, true, Mat::MetalPlateDiamond);
 
@@ -535,12 +585,40 @@ fn stormworks(b: &mut MapBuilder) {
     for i in 0..4 { b.barrel(-29.0 + i as f32 * 1.1, 0.0, 31.0, Mat::BarrelRust); }
     b.decor(-32.0, 4.2, 18.0, 18.0, 0.4, 16.0, Mat::Duct);
 
+    // --- Cross racking.
+    //
+    // The racks all ran the same way, which made every aisle a lane and every
+    // gap between aisles a seventy-two metre shot across the hall. These runs
+    // sit across the aisles at staggered depths, so moving down the warehouse
+    // is a series of short decisions and no two aisles are open at once.
+    for (i, z) in [-26.0f32, -8.0, 10.0, 28.0].iter().enumerate() {
+        let start = if i % 2 == 0 { -32.0 } else { -20.0 };
+        let mut x = start;
+        while x < 32.0 {
+            b.boxx(x, 0.0, *z, 8.0, 2.9, 3.6, Mat::MetalPanel).with_scale(2.6).with_top(Mat::WoodCrate);
+            x += 20.0;
+        }
+    }
+
+    // --- Mid: a boxed-in floor the whole hall can reach and nobody can see
+    //     across. Four container walls with the corners left open, which
+    //     makes the middle a room with four doors instead of a crossroads.
+    b.container(-6.5, 0.0, -7.0, true, Mat::ShippingRed);
+    b.container(6.5, 0.0, -7.0, true, Mat::ShippingBlue);
+    b.container(-6.5, 0.0, 7.0, true, Mat::ShippingGreen);
+    b.container(6.5, 0.0, 7.0, true, Mat::ShippingRed);
+    b.container(-8.5, 0.0, 0.0, false, Mat::ShippingBlue);
+    b.container(8.5, 0.0, 0.0, false, Mat::ShippingGreen);
+    b.container(-6.5, 2.6, -7.0, true, Mat::ShippingGreen);
+    b.container(6.5, 2.6, 7.0, true, Mat::ShippingBlue);
+    step_up(b, -11.0, 0.0, -1.1, 2.2, 2.6, 2.6, RampAxis::PosX, Mat::MetalPlateDiamond);
+
     // --- Floor cover in the open lanes.
     for (x, z) in [(-2.0f32, -20.0f32), (10.0, -8.0), (-14.0, 8.0), (24.0, -14.0), (-24.0, -4.0), (12.0, 30.0)] {
         b.crates(x, 0.0, z, 1.4, 2, Mat::WoodCrate);
     }
-    b.container(0.0, 0.0, 12.0, true, Mat::ShippingRed);
-    b.container(-12.0, 0.0, -12.0, false, Mat::ShippingBlue);
+    b.cover_line(-34.0, 0.0, -30.0, 26.0, false, 3, Mat::Concrete);
+    b.cover_line(34.0, 0.0, 6.0, 26.0, false, 3, Mat::Concrete);
 
     b.spawn_cluster(-30.0, 1.3, -30.0, 45.0, Team::Phantom, 8, 4.5, true);
     b.spawn_cluster(-30.0, 0.0, 4.0, 0.0, Team::Phantom, 6, 4.5, false);
@@ -641,6 +719,28 @@ fn belvoir(b: &mut MapBuilder) {
     b.stairs(1.4, sy, 26.0, 2.6, 8.0, 4.6, RampAxis::PosZ, Mat::Cobble);
     b.stairs(11.8, sy, -4.0, 2.4, 7.0, 4.6, RampAxis::PosZ, Mat::Cobble);
 
+    // --- Sewer bulkheads: sixty-eight metres of straight tunnel is a shot
+    //     from one stairwell to the other, which is not what a flank route is
+    //     for. Two bulkheads with offset doors and a run of pillars.
+    b.wall_x_door(-6.0, -16.0, 12.0, sy, 3.2, 3.4, Mat::StoneWall);
+    b.wall_x_door(-6.0, 14.0, 12.0, sy, 3.2, 8.6, Mat::StoneWall);
+    for z in [-27.0f32, -6.0, 8.0, 21.0] {
+        b.pillar(-2.6, sy, z, 1.1, 3.2, Mat::StoneWall);
+        b.pillar(2.6, sy, z + 4.0, 1.1, 3.2, Mat::StoneWall);
+    }
+
+    // --- Perimeter alleys. Every block stops short of the playspace edge, so
+    //     the ring road around the town was the longest lane on the map in
+    //     both directions. Rubble walls close it into segments.
+    for x in [-30.0f32, -14.0, 2.0, 20.0, 34.0] {
+        b.divider(x, 0.0, -38.5, 5.0, 4.0, false, 2.5, Mat::StoneWall);
+        b.divider(x - 6.0, 0.0, 33.5, 5.0, 4.0, false, 2.5, Mat::StoneWall);
+    }
+    for z in [-28.0f32, -6.0, 14.0, 30.0] {
+        b.divider(-39.5, 0.0, z, 5.0, 4.0, true, 2.5, Mat::StoneWall);
+        b.divider(38.0, 0.0, z - 8.0, 5.0, 4.0, true, 2.5, Mat::StoneWall);
+    }
+
     // --- Square furniture: a fountain, stalls, a burnt-out truck.
     b.boxc(0.0, 0.0, 0.0, 5.0, 1.0, 5.0, Mat::Marble).with_scale(2.0);
     b.boxc(0.0, 1.0, 0.0, 1.4, 2.2, 1.4, Mat::Marble).with_scale(1.2);
@@ -653,9 +753,56 @@ fn belvoir(b: &mut MapBuilder) {
     b.barrier(14.0, 0.0, -14.0, 6.0, 0.6);
     b.barrier(-20.0, 0.0, -18.0, 0.6, 6.0);
 
+    // --- Covered market hall over the north half of the square.
+    //
+    // A twenty-six by twenty-two metre paved square with a fountain in it is a
+    // place nobody crosses twice. Roofing half of it on columns leaves the
+    // square readable from the edges and impossible to hold from any one of
+    // them, which is what a centre is supposed to be.
+    for i in 0..4 {
+        let x = -10.0 + i as f32 * 6.4;
+        b.pillar(x, 0.0, -9.0, 0.9, 4.2, Mat::StoneWall);
+        b.pillar(x, 0.0, -1.0, 0.9, 4.2, Mat::StoneWall);
+    }
+    b.ceiling(-12.0, -10.0, 24.0, 10.0, 4.2, Mat::RoofTile);
+    b.half_wall(-12.0, 0.0, -5.4, 9.0, true, Mat::StoneWall);
+    b.half_wall(3.0, 0.0, -5.4, 9.0, true, Mat::StoneWall);
+
+    // --- Terraces closing the west and east streets, which ran the full
+    //     seventy-six metres of the map with nothing in them.
+    b.tower(-41.0, -34.0, 8.0, 13.0, 0.0, 2, Mat::BrickPale, Mat::WoodFloor, Mat::RoofTile);
+    b.tower(-41.0, 18.0, 8.0, 13.0, 0.0, 2, Mat::Plaster, Mat::WoodFloor, Mat::RoofTile);
+    b.tower(33.0, 22.0, 9.0, 13.0, 0.0, 2, Mat::BrickRed, Mat::WoodFloor, Mat::RoofTile);
+    b.divider(-42.0, 0.0, 6.0, 12.0, 4.0, true, 4.0, Mat::StoneWall);
+    b.divider(30.0, 0.0, 6.0, 12.0, 4.0, true, 8.0, Mat::StoneWall);
+    b.divider(-16.0, 0.0, 32.0, 26.0, 4.0, true, 18.0, Mat::StoneWall);
+    b.divider(-8.0, 0.0, -37.0, 22.0, 4.0, true, 6.0, Mat::StoneWall);
+
     // --- Alleys: low walls and rubble so the streets are not bare.
     for (x, z, sx, sz) in [(-30.0f32, 6.0f32, 12.0, 0.8), (18.0, -30.0, 0.8, 10.0), (-4.0, 22.0, 10.0, 0.8)] {
         b.boxx(x, 0.0, z, sx, 1.3, sz, Mat::StoneWall).with_scale(2.0);
+    }
+    b.cover_line(-40.0, 0.0, -14.0, 18.0, false, 3, Mat::StoneWall);
+    b.cover_line(38.0, 0.0, -8.0, 18.0, false, 3, Mat::StoneWall);
+
+    // --- Cross walls in the two streets that ran the width of the town.
+    //
+    // The blocks are laid out in rows, which leaves a continuous gap between
+    // each row: an eighty-metre lane at z of about minus eighteen and another
+    // at plus eleven, either of which could be held from one end. These are
+    // the garden walls between the properties, each with one way through.
+    for (x, z, len, door) in [
+        (-18.0f32, -24.0f32, 11.0f32, 7.0f32),
+        (12.0, -22.0, 9.0, 3.0),
+        (24.0, -34.0, 11.0, 4.0),
+        (-28.0, 7.0, 8.0, 5.0),
+        (-6.0, 6.0, 9.0, 3.0),
+        (21.0, 7.0, 8.0, 5.0),
+        (-12.0, 30.0, 9.0, 6.0),
+        (14.0, 30.0, 9.0, 3.0),
+        (30.0, -4.0, 9.0, 6.0),
+    ] {
+        b.divider(x, 0.0, z, len, 4.0, false, door, Mat::StoneWall);
     }
     for (x, z) in [(-22.0f32, -22.0f32), (20.0, 18.0), (-12.0, 30.0), (32.0, 4.0)] {
         b.crates(x, 0.0, z, 1.2, 2, Mat::WoodCrate);
