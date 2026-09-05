@@ -288,6 +288,30 @@ fn tree(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, h: f32, spread: f32) {
     c.tex_scale = 3.0;
 }
 
+/// A thicket: dense undergrowth you can neither walk nor shoot through.
+///
+/// Bushes are decoration and rightly do not block anything, which meant the
+/// jungle had trunks and nothing else - eighty metres of open ground with
+/// posts in it. A thicket is the jungle's version of a wall, and the map needs
+/// walls as much as any other map does.
+fn thicket(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, w: f32, d: f32, h: f32) {
+    let t = b.boxc(cx, y, cz, w, h, d, Mat::Grass);
+    t.flags = BrushFlags::SOLID | BrushFlags::OPAQUE | BrushFlags::NOSHADOW | BrushFlags::NONAV;
+    t.tex_scale = 1.6;
+    t.top = Mat::Grass;
+    // A ragged fringe of real foliage on top, so the mass reads as leaves
+    // rather than as a green box.
+    let c = b.decor(cx - w * 0.58, y + h * 0.72, cz - d * 0.58, w * 1.16, h * 0.5, d * 1.16, Mat::Foliage);
+    c.flags = BrushFlags::CUTOUT | BrushFlags::NOSHADOW | BrushFlags::NONAV;
+    c.tex_scale = 2.4;
+}
+
+/// A rock outcrop: hard cover with a climbable shoulder.
+fn outcrop(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, w: f32, h: f32, mat: Mat) {
+    b.boxc(cx, y, cz, w, h, w * 0.82, mat).with_scale(2.6);
+    b.boxc(cx + w * 0.30, y, cz - w * 0.22, w * 0.62, h * 0.58, w * 0.60, mat).with_scale(2.2);
+}
+
 /// A bush: pure visual concealment, never blocks movement or bullets.
 fn bush(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, w: f32, h: f32) {
     let c = b.decor(cx - w * 0.5, y, cz - w * 0.5, w, h, w, Mat::Foliage);
@@ -864,9 +888,33 @@ fn greenline(b: &mut MapBuilder) {
     for x in [-20.0f32, 4.0, 24.0] {
         b.boxc(x, 0.0, 0.0, 2.4, 0.4, 9.0, Mat::WoodPlank).with_scale(2.0);
     }
+    // Boulders and deadfall in the channel. Without them the cut is eighty
+    // metres of covered lane with a clean shot from one end to the other,
+    // which makes it strictly better than the surface it is meant to be an
+    // alternative to.
+    for (x, z, w, h) in [
+        (-24.0f32, -1.0f32, 4.2f32, 3.0f32),
+        (-11.0, 1.5, 3.6, 2.6),
+        (1.0, -1.5, 4.0, 3.0),
+        (17.0, 1.0, 3.8, 2.8),
+        (27.0, -1.0, 3.4, 2.4),
+        (-34.0, 1.0, 3.4, 2.4),
+    ] {
+        outcrop(b, x, -2.2, z, w, h, Mat::Rock);
+    }
 
     // --- Central relay building: two storeys plus a dish on the roof.
-    b.room(-9.0, -12.0, 18.0, 16.0, 0.0, 3.4, DOOR_NX | DOOR_PX | DOOR_NZ, Mat::ConcretePanel, Mat::ConcreteFloor, false);
+    // Built face by face rather than with `room` because the north face wants
+    // a wide vehicle opening: with a single doorway there, the shortest path
+    // from it to the east door is a diagonal that clips the corner between
+    // them, and a player holding forward wedges on it.
+    b.floor(-9.0, -12.0, 18.0, 16.0, 0.0, Mat::ConcreteFloor);
+    b.wall_z_door(-9.0, -12.0, 16.0, 0.0, 3.4, 8.0, Mat::ConcretePanel);
+    b.wall_z_door(9.0, -12.0, 16.0, 0.0, 3.4, 8.0, Mat::ConcretePanel);
+    b.wall_x(-9.0, 4.0, 18.0, 0.0, 3.4, Mat::ConcretePanel);
+    b.wall_x(-9.0, -12.0, 5.0, 0.0, 3.4, Mat::ConcretePanel);
+    b.wall_x(4.0, -12.0, 5.0, 0.0, 3.4, Mat::ConcretePanel);
+    b.wall_x(-4.0, -12.0, 8.0, DOOR_H + 0.4, 3.4 - DOOR_H - 0.4, Mat::ConcretePanel);
     // Two flights in opposite corners take you ground -> first floor -> roof.
     b.floor_with_hole(-9.0, -12.0, 18.0, 16.0, 3.4, Mat::ConcreteFloor, -8.7, -11.9, 3.2, 5.4);
     b.access_stair(-7.2, -6.8, 0.0, 3.4, false, true, Mat::MetalPlateDiamond);
@@ -917,6 +965,57 @@ fn greenline(b: &mut MapBuilder) {
     b.access_stair(-4.7, 34.0, 0.0, wy, false, false, Mat::WoodPlank);
     b.access_stair(-28.7, 34.0, 0.0, wy, true, false, Mat::WoodPlank);
     b.access_stair(11.3, -10.0, 0.0, wy, false, false, Mat::WoodPlank);
+
+    // --- Thickets and outcrops: the jungle's walls.
+    //
+    // Trunks and bushes gave this map trunks and bushes. Eighty metres square
+    // of walkable ground with neither cover nor structure in it plays as one
+    // enormous sightline whatever is growing on it.
+    for (x, z, w, d) in [
+        (-30.0f32, -14.0f32, 14.0f32, 4.0f32),
+        (-12.0, -24.0, 4.0, 13.0),
+        (10.0, -22.0, 12.0, 4.0),
+        (30.0, -12.0, 4.0, 14.0),
+        (-26.0, 14.0, 4.0, 12.0),
+        (-8.0, 26.0, 13.0, 4.0),
+        (12.0, 16.0, 4.0, 13.0),
+        (28.0, 30.0, 12.0, 4.0),
+        (-34.0, 30.0, 4.0, 11.0),
+        (34.0, -32.0, 11.0, 4.0),
+        (0.0, -30.0, 4.0, 10.0),
+        (-20.0, 34.0, 10.0, 4.0),
+    ] {
+        thicket(b, x, 0.0, z, w, d, 3.2);
+    }
+    for (x, z, w, h) in [
+        (-22.0f32, -32.0f32, 4.4f32, 2.6f32),
+        (18.0, -32.0, 3.8, 2.2),
+        (-36.0, 2.0, 4.0, 2.4),
+        (36.0, 6.0, 4.4, 2.8),
+        (6.0, 34.0, 4.0, 2.4),
+        (-14.0, 16.0, 3.6, 2.0),
+        (22.0, 6.0, 4.2, 2.6),
+        (-4.0, -20.0, 3.4, 1.9),
+    ] {
+        outcrop(b, x, 0.0, z, w, h, Mat::Rock);
+    }
+
+    // --- Perimeter undergrowth, so the edge of the playspace is jungle and
+    //     not a running track around it.
+    for i in 0..5 {
+        let t = -32.0 + i as f32 * 16.0;
+        thicket(b, t, 0.0, -38.0, 4.0, 4.0, 3.2);
+        thicket(b, t + 8.0, 0.0, 38.0, 4.0, 4.0, 3.2);
+        thicket(b, -38.0, 0.0, t + 4.0, 4.0, 4.0, 3.2);
+        thicket(b, 38.0, 0.0, t - 4.0, 4.0, 4.0, 3.2);
+    }
+
+    // --- Generator hut on the north side: somewhere to fight indoors that is
+    //     not the relay building.
+    b.room(6.0, -34.0, 14.0, 12.0, 0.0, 3.2, DOOR_NX | DOOR_PZ, Mat::Corrugated, Mat::ConcreteFloor, true);
+    b.wall_x_window(6.0, -34.0, 14.0, 0.0, 3.2, 1.1, 2.0, Mat::Corrugated);
+    tank(b, 10.0, 0.0, -30.0, 1.6, 2.6, Mat::MetalRust);
+    b.crates(16.0, 0.0, -25.0, 1.3, 2, Mat::WoodCrate);
 
     // --- Bunker at the south-west, a hard point with two mouths.
     b.room(-36.0, 24.0, 14.0, 12.0, 0.0, 3.0, DOOR_PX | DOOR_NZ, Mat::Bunker, Mat::ConcreteFloor, true);
@@ -1167,16 +1266,70 @@ fn highrise(b: &mut MapBuilder) {
     b.access_stair(-5.0, 6.0, py, 0.0, true, false, Mat::ConcreteFloor);
     b.access_stair(-12.0, 24.0, py, 0.0, true, false, Mat::ConcreteFloor);
 
+    // --- Mid-block shops, one to a side.
+    //
+    // Four towers in four corners leaves a ring road round the outside and a
+    // clear run between every pair of them, which is why this map could be
+    // crossed corner to corner without ever leaving a sightline. A building
+    // halfway along each side turns the ring into eight segments and gives
+    // each side street somewhere to break into.
+    b.tower(-7.0, -34.0, 14.0, 10.0, 0.0, 2, Mat::BrickPale, Mat::ConcreteFloor, Mat::ConcreteFloor);
+    b.tower(-7.0, 24.0, 14.0, 10.0, 0.0, 2, Mat::Plaster, Mat::ConcreteFloor, Mat::ConcreteFloor);
+    b.tower(-34.0, -6.0, 10.0, 12.0, 0.0, 2, Mat::Plaster, Mat::ConcreteFloor, Mat::ConcreteFloor);
+    b.tower(24.0, -6.0, 10.0, 12.0, 0.0, 2, Mat::BrickRed, Mat::ConcreteFloor, Mat::ConcreteFloor);
+
     // --- Perimeter: rubble walls keep the outer ring from being a racetrack.
     for (x, z, sx, sz) in [(-38.0f32, -8.0f32, 2.0, 16.0), (36.0, -6.0, 2.0, 16.0),
                            (-8.0, 36.0, 16.0, 2.0), (-6.0, -38.0, 16.0, 2.0)] {
         b.boxx(x, 0.0, z, sx, 2.2, sz, Mat::Cinderblock).with_scale(2.5);
     }
+    // The outer alley is four metres wide, so a wall with a doorway in it is
+    // still a clear shot: the doorway is half the alley. These are solid, and
+    // each segment stays reachable from the cross street at its own end.
+    for (x, z) in [(-21.0f32, -37.6f32), (27.0, -37.6), (-25.0, 33.4), (23.0, 33.4)] {
+        b.wall_z(x, z, 4.6, 0.0, 3.4, Mat::Cinderblock);
+    }
+    for (x, z) in [(-37.6f32, -23.0f32), (-37.6, 21.0), (33.4, -25.0), (33.4, 25.0)] {
+        b.wall_x(x, z, 4.6, 0.0, 3.4, Mat::Cinderblock);
+    }
 
-    b.spawn_cluster(-32.0, 0.0, 6.0, 90.0, Team::Phantom, 7, 4.0, true);
-    b.spawn_cluster(-6.0, 0.0, 32.0, 0.0, Team::Phantom, 6, 4.5, false);
-    b.spawn_cluster(32.0, 0.0, -6.0, -90.0, Team::Vanguard, 7, 4.0, true);
-    b.spawn_cluster(4.0, 0.0, -32.0, 180.0, Team::Vanguard, 6, 4.5, false);
+    // --- Street walls between the blocks, with the doorways staggered so no
+    //     street is a clear run even though every one of them is passable.
+    for (x, z, len, door) in [
+        (-16.0f32, -22.0f32, 9.0f32, 2.0f32),
+        (-16.0, -31.0, 9.0, 7.0),
+        (7.0, -22.0, 9.0, 7.0),
+        (7.0, -31.0, 9.0, 2.0),
+        (-16.0, 21.0, 9.0, 7.0),
+        (-16.0, 30.0, 9.0, 2.0),
+        (7.0, 21.0, 9.0, 2.0),
+        (7.0, 30.0, 9.0, 7.0),
+    ] {
+        b.divider(x, 0.0, z, len, 3.6, true, door, Mat::Cinderblock);
+    }
+    for (x, z, len, door) in [
+        (-22.0f32, -16.0f32, 10.0f32, 2.5f32),
+        (-31.0, -16.0, 10.0, 7.5),
+        (-22.0, 6.0, 10.0, 7.5),
+        (-31.0, 6.0, 10.0, 2.5),
+        (22.0, -16.0, 10.0, 7.5),
+        (31.0, -16.0, 10.0, 2.5),
+        (22.0, 6.0, 10.0, 2.5),
+        (31.0, 6.0, 10.0, 7.5),
+    ] {
+        b.divider(x, 0.0, z, len, 3.6, false, door, Mat::Cinderblock);
+    }
+
+    // --- Car park bulkheads: sixty metres of underground straight is a
+    //     better sightline than anything on the surface, which is backwards
+    //     for a route whose whole appeal is that nobody can see you in it.
+    b.wall_z_door(-12.0, -16.0, 14.0, py, 3.0, 4.0, Mat::Concrete);
+    b.wall_z_door(12.0, -16.0, 14.0, py, 3.0, 10.0, Mat::Concrete);
+
+    b.spawn_cluster(-33.0, 0.0, -13.0, 90.0, Team::Phantom, 7, 4.0, true);
+    b.spawn_cluster(-11.0, 0.0, 33.0, 0.0, Team::Phantom, 6, 4.5, false);
+    b.spawn_cluster(33.0, 0.0, 13.0, -90.0, Team::Vanguard, 7, 4.0, true);
+    b.spawn_cluster(12.0, 0.0, -33.0, 180.0, Team::Vanguard, 6, 4.5, false);
     b.spawn_cluster(-30.0, 0.0, -20.0, 45.0, Team::None, 4, 4.0, false);
     b.spawn_cluster(30.0, 0.0, 22.0, -135.0, Team::None, 4, 4.0, false);
 
@@ -1303,6 +1456,45 @@ fn drydock(b: &mut MapBuilder) {
     truck(b, -4.0, 0.0, 28.0, true, Mat::MetalRust);
     for i in 0..8 { b.barrel(-44.0 + i as f32 * 1.0, 0.0, 4.0, Mat::BarrelRust); }
 
+    // --- Quayside sheds and stacks.
+    //
+    // Both quays ran the full ninety-six metres of the yard with nothing on
+    // them, which made the two longest lanes on the map the two places you
+    // have to walk to get anywhere. These break each quay into four yards.
+    // Shallow enough to leave a clear six metres between the shed line and the
+    // basin lip, and clear of x = 27.6 and x = -24.4, where the crane
+    // staircases already run the full depth of both quays. A shed opposite one
+    // of those closes the only way past it and cuts the map in half.
+    for (x, z, sx, sz, mat) in [
+        (-36.0f32, -33.5f32, 9.0f32, 9.0f32, Mat::Corrugated),
+        (-12.0, -33.5, 9.0, 9.0, Mat::Cinderblock),
+        (10.0, -33.5, 9.0, 9.0, Mat::Corrugated),
+        (32.0, -33.5, 9.0, 9.0, Mat::Cinderblock),
+        (-20.0, 24.5, 9.0, 9.0, Mat::Cinderblock),
+        (0.0, 24.5, 9.0, 9.0, Mat::Corrugated),
+        (34.0, 24.5, 9.0, 9.0, Mat::Cinderblock),
+    ] {
+        b.room(x, z, sx, sz, 0.0, 4.2, DOOR_NX | DOOR_PX, mat, Mat::ConcreteFloor, true);
+    }
+    // Stacks in the gaps between the sheds, staggered off the shed line so
+    // the quay is a slalom rather than a row of pillars.
+    for (x, z, along) in [
+        (-44.0f32, -29.0f32, false), (-22.0, -30.0, true), (2.0, -29.0, false),
+        (22.0, -30.0, true), (-30.0, 29.0, true), (-6.0, 30.0, false),
+        (14.0, 29.0, true), (44.0, 30.0, false),
+    ] {
+        b.container(x, 0.0, z, along, Mat::ShippingGreen);
+        b.container(x, 2.65, z, along, Mat::ShippingRed);
+    }
+
+    // --- Keel blocks and staging in the basin channels, which ran the full
+    //     seventy-two metres either side of the hull.
+    for (x, z) in [(-30.0f32, -13.0f32), (-14.0, -13.0), (4.0, -13.0), (24.0, -13.0),
+                   (-26.0, 13.0), (-8.0, 13.0), (12.0, 13.0), (30.0, 13.0)] {
+        b.boxc(x, -6.0, z, 3.0, 2.6, 6.0, Mat::Concrete).with_scale(2.2);
+        b.boxc(x + 3.4, -6.0, z + 2.0, 2.2, 1.3, 2.2, Mat::MetalRust).with_scale(1.4);
+    }
+
     // --- Workshop building on the west quay.
     b.room(-46.0, -12.0, 14.0, 24.0, 0.0, 6.0, DOOR_PX | DOOR_PZ, Mat::Corrugated, Mat::ConcreteFloor, true);
     b.catwalk(-45.0, 3.4, -11.0, 12.0, 2.8, Mat::Grating, true, &[-39.0]);
@@ -1331,7 +1523,7 @@ fn drydock(b: &mut MapBuilder) {
     b.pickup(-39.0, 0.1, -6.0, PickupKind::Health);
 
     // Clutter the open ground; see MapBuilder::dress_open_ground.
-    b.dress_open_ground(28, 0x1A06, &[
+    b.dress_open_ground(14, 0x1A06, &[
         CoverPiece::Container(Mat::ShippingGreen),
         CoverPiece::Crates(Mat::WoodCrate, 1.5),
         CoverPiece::Barrels(Mat::BarrelRust),
