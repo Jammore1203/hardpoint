@@ -1,0 +1,35 @@
+[package]
+name = "hardpoint"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.80"
+description = "HARDPOINT: Operation Ironveil - a retro-styled multiplayer FPS"
+default-run = "hardpoint"
+
+[[bin]]
+name = "hardpoint"
+path = "src/main.rs"
+
+[[bin]]
+name = "hardpoint-server"
+path = "src/bin/dedicated.rs"
+
+[dependencies]
+wgpu = { version = "25", default-features = false, features = ["wgsl", "vulkan", "gles", "dx12", "metal", "static-dxc"] }
+winit = "0.30"
+glam = { version = "0.30", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+cpal = "0.15"
+
+[profile.dev]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+panic = "abort"
+strip = true
