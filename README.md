@@ -9,21 +9,43 @@ mesh, sound effect, music track and glyph is generated procedurally at load
 time, which is why the whole game is a few hundred kilobytes of binary and
 starts in well under a second.
 
-## Building
+## Installing
+
+On Arch and derivatives, build a real package so pacman can remove it cleanly:
 
 ```sh
-cargo build --release
+makepkg -si
 ```
+
+Anywhere else:
+
+```sh
+./install.sh                 # builds, self-tests, installs to /usr/local
+PREFIX=/usr ./install.sh     # or somewhere else
+sudo make uninstall          # to remove it again
+```
+
+That installs both binaries, the icon at six sizes, a desktop entry, two
+manual pages and a systemd unit for the dedicated server. The game generates
+every asset at runtime, so there is no data directory to go with them and the
+binary runs from anywhere.
 
 Requires a Rust toolchain (1.80 or newer) and a Vulkan, Metal, D3D12 or GLES
 capable GPU. The only dependencies are `wgpu`, `winit`, `glam`, `bytemuck`,
 `pollster` and `cpal`.
 
+## Building without installing
+
+```sh
+make build     # release binaries in target/release
+make check     # map audit, traversal test, and bot matches in three modes
+```
+
 ## Playing
 
 ```sh
-cargo run --release                        # launch the game
-cargo run --release -- --connect <address> # launch and join a server directly
+hardpoint                        # launch the game
+hardpoint --connect <address>    # launch and join a server directly
 ```
 
 From the main menu:
@@ -38,8 +60,17 @@ From the main menu:
 ### Dedicated server
 
 ```sh
-cargo run --release --bin hardpoint-server -- --map DRYDOCK --mode DOM --bots 8
+hardpoint-server --map DRYDOCK --mode DOM --bots 8
 ```
+
+Installed systems get a service unit reading `/etc/hardpoint/server.conf`:
+
+```sh
+sudo systemctl enable --now hardpoint-server
+```
+
+It runs under a dynamic user with no filesystem access and a UDP socket as its
+only capability.
 
 Options: `--port`, `--map`, `--mode` (`TDM`, `FFA`, `DOM`, `S&D`, `GUN`),
 `--bots`, `--skill 0-3`, `--players`, `--name`, `--password`, `--tracker`.
@@ -50,7 +81,7 @@ each match, and answers LAN discovery so it shows up in the browser.
 ### Tracker
 
 ```sh
-cargo run --release -- --tracker
+hardpoint --tracker
 ```
 
 A tiny registry servers announce themselves to and browsers query, for when
@@ -148,7 +179,12 @@ hardpoint --nav <MAP> [height]         # ASCII dump of the navigation graph
 hardpoint --probe <MAP> <x> <z>        # explain one column of a map
 hardpoint --simtest <MAP> [secs] [n]   # headless movement and collision soak
 hardpoint --botmatch <MAP> <MODE> ...  # headless match, many times real time
+hardpoint --stairs [MAP|ALL]           # walk every route; report wedge points
+hardpoint --icon <path> [size]         # write the application icon
 ```
+
+`HARDPOINT_CENSUS=1` on a `--botmatch` lists every event the match produced,
+which is how you tell a subsystem that is not running from one that is.
 
 ## Performance
 

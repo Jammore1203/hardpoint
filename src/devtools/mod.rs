@@ -770,3 +770,56 @@ pub fn stair_test(map_name: &str) -> i32 {
         1
     }
 }
+
+/// Writes the application icon as a PNG.
+///
+/// The game ships no asset files, so the icon is generated the same way every
+/// texture is: a desktop entry needs one, and generating it at install time
+/// keeps the repository free of binaries.
+pub fn write_icon(path: &str, size: u32) -> i32 {
+    let n = size.clamp(16, 1024);
+    let mut px = vec![0u8; (n * n * 4) as usize];
+    let fs = n as f32;
+
+    // The mark: a gunmetal ring with a heavy chevron notch, on the interface's
+    // own near-black, in its accent amber. Legible at sixteen pixels.
+    let bg = [11u8, 13, 11];
+    let ring = [214u8, 163, 55];
+    let dim = [92u8, 70, 24];
+    let steel = [176u8, 182, 186];
+
+    for y in 0..n {
+        for x in 0..n {
+            let fx = (x as f32 + 0.5) / fs * 2.0 - 1.0;
+            let fy = (y as f32 + 0.5) / fs * 2.0 - 1.0;
+            let r = (fx * fx + fy * fy).sqrt();
+            let mut c = bg;
+            let mut a = 0u8;
+
+            // Rounded plate.
+            if r < 0.98 { a = 255; }
+            // Outer ring, broken at the four cardinal points like a reticle.
+            let axis = fx.abs().min(fy.abs());
+            if (0.62..0.80).contains(&r) && axis > 0.10 { c = ring; }
+            // Inner ticks.
+            if (0.30..0.46).contains(&r) && axis > 0.06 { c = dim; }
+            // Centre dot.
+            if r < 0.10 { c = ring; }
+            // Chevron: two thick bars meeting at the middle, pointing up.
+            let cheq = (fy + 0.10) - fx.abs() * 0.9;
+            if cheq.abs() < 0.13 && fx.abs() < 0.50 && fy > -0.55 { c = steel; }
+
+            let i = ((y * n + x) * 4) as usize;
+            px[i] = c[0];
+            px[i + 1] = c[1];
+            px[i + 2] = c[2];
+            px[i + 3] = a;
+        }
+    }
+
+    let png = png::encode_rgba(n, n, &px);
+    match std::fs::write(path, png) {
+        Ok(()) => { println!("wrote {} ({}x{})", path, n, n); 0 }
+        Err(e) => { eprintln!("could not write {}: {}", path, e); 1 }
+    }
+}

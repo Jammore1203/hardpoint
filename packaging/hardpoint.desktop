@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Hardpoint
+GenericName=First-Person Shooter
+Comment=Operation Ironveil: a multiplayer arena shooter in the style of a 2002 console FPS
+Exec=hardpoint
+TryExec=hardpoint
+Icon=hardpoint
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=fps;shooter;multiplayer;arena;lan;
+StartupNotify=true
+PrefersNonDefaultGPU=true

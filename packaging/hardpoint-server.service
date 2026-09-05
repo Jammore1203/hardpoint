@@ -1,0 +1,37 @@
+[Unit]
+Description=Hardpoint dedicated server
+Documentation=man:hardpoint-server(6)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/hardpoint/server.conf
+ExecStart=/usr/bin/hardpoint-server --port ${PORT} --map ${MAP} --mode ${MODE} \
+    --bots ${BOTS} --skill ${SKILL} --players ${PLAYERS} --name ${NAME}
+Restart=on-failure
+RestartSec=5s
+
+# The server needs a UDP socket and nothing else: no files, no display, no
+# privileges. DynamicUser gives it a throwaway account so the package does not
+# have to create one.
+DynamicUser=yes
+StateDirectory=hardpoint
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

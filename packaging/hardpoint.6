@@ -1,0 +1,106 @@
+.TH HARDPOINT 6 "2026" "Hardpoint" "Games"
+.SH NAME
+hardpoint \- Operation Ironveil, a multiplayer arena first-person shooter
+.SH SYNOPSIS
+.B hardpoint
+.RI [ options ]
+.SH DESCRIPTION
+.B hardpoint
+is a multiplayer arena shooter in the style of a 2002 console FPS: twelve
+original maps, five game modes, twenty-five weapons and bots that play the
+objective. Every texture, mesh, sound and music track is generated at load
+time, so the game has no asset directory and starts in well under a second.
+.PP
+Run with no arguments to open the game. Matches are played against a real
+authoritative server, whether you host one yourself from the menu or join
+somebody else's.
+.SH OPTIONS
+.TP
+.BI \-\-connect " address"
+Launch and join a server immediately. The address may include a port, which
+defaults to 27015.
+.TP
+.BI \-\-server " [options]"
+Run a dedicated server with no window. See
+.BR hardpoint\-server (6)
+for the options, which are the same.
+.TP
+.BI \-\-tracker " [port]"
+Run a server registry that servers announce themselves to and browsers query,
+for players who are not on the same broadcast domain. Defaults to port 27115.
+.TP
+.B \-\-help
+Print a usage summary and exit.
+.SH DEVELOPER TOOLS
+These run headless and exit; they exist so the game can be checked without
+playing it.
+.TP
+.B \-\-audit
+Validate every map: geometry, navigation connectivity, spawns, objectives and
+pickups. Exits non-zero if anything is wrong.
+.TP
+.BI \-\-stairs " [MAP|ALL]"
+Walk the real player movement code along real paths across a map and report
+anywhere a player holding forward would stop making progress.
+.TP
+.BI \-\-simtest " MAP [seconds] [players]"
+Headless movement and collision soak.
+.TP
+.BI \-\-botmatch " MAP MODE [seconds] [bots] [skill]"
+Play a full match headlessly, many times faster than real time, and report
+scores, engagement rates and server tick cost. Set
+.B HARDPOINT_CENSUS=1
+to list every game event the match produced, which is how you tell a subsystem
+that is not running from one that is.
+.TP
+.BI \-\-nav " MAP [height]"
+Print a horizontal slice of a map's navigation graph as text.
+.TP
+.BI \-\-probe " MAP x z"
+Explain one column of a map: brushes, standability and navigation nodes.
+.TP
+.BI \-\-icon " path [size]"
+Write the application icon as a PNG.
+.SH CONTROLS
+Move with
+.BR W ", " A ", " S ", " D ;
+jump and respawn with
+.BR Space ;
+crouch with
+.BR "Left Ctrl" ;
+prone with
+.BR Z ;
+sprint with
+.BR "Left Shift" .
+Fire and aim are the mouse buttons, reload is
+.BR R ,
+melee is
+.BR V ,
+grenades are
+.B G
+and
+.BR F ,
+and
+.B E
+uses, plants and defuses. Weapons are
+.BR 1 ", " 2 ", " 3
+or the mouse wheel.
+.B Tab
+shows the scoreboard,
+.B T
+and
+.B Y
+chat,
+.B Esc
+pauses and
+.B F3
+shows the performance overlay. Everything is rebindable in Settings.
+.SH FILES
+.TP
+.I ~/.local/share/hardpoint/settings.cfg
+Settings and key bindings.
+.TP
+.I ~/.local/share/hardpoint/profile.cfg
+Rank, experience, unlocks and career statistics.
+.SH SEE ALSO
+.BR hardpoint\-server (6)

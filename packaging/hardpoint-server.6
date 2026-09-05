@@ -1,0 +1,59 @@
+.TH HARDPOINT\-SERVER 6 "2026" "Hardpoint" "Games"
+.SH NAME
+hardpoint\-server \- dedicated server for Hardpoint
+.SH SYNOPSIS
+.B hardpoint\-server
+.RI [ options ]
+.SH DESCRIPTION
+Runs the same authoritative server the game hosts internally, with no window,
+no renderer and no audio. It holds the simulation, validates every client
+action, fills empty slots with bots, cycles maps at the end of each match and
+answers local network discovery so it appears in the in-game server browser.
+.SH OPTIONS
+.TP
+.BI \-\-port " n"
+UDP port to listen on. Default 27015.
+.TP
+.BI \-\-map " NAME"
+Starting map: IRONVEIL, STORMWORKS, BELVOIR, GREENLINE, WHITEOUT, HIGHRISE,
+DRYDOCK, FOUNDRY, SALTBITE, DEEPWELL, JUNCTION or OVERPASS.
+.TP
+.BI \-\-mode " NAME"
+TDM, FFA, DOM, S&D or GUN.
+.TP
+.BI \-\-bots " n"
+Bots to fill the server with.
+.TP
+.BI \-\-skill " 0\-3"
+Bot difficulty: recruit, regular, veteran, elite.
+.TP
+.BI \-\-players " n"
+Maximum players, including bots.
+.TP
+.BI \-\-name " text"
+Server name shown in the browser.
+.TP
+.BI \-\-password " text"
+Require a password to join.
+.TP
+.BI \-\-tracker " address"
+Register with a tracker so the server is listed off the local network.
+.TP
+.B \-\-help
+Print a usage summary and exit.
+.SH SERVICE
+The package installs a systemd unit reading
+.IR /etc/hardpoint/server.conf .
+.PP
+.RS
+systemctl enable \-\-now hardpoint\-server
+.RE
+.PP
+The unit runs under a dynamic user with no filesystem access and a UDP socket
+as its only capability.
+.SH SECURITY
+Clients are never trusted. Positions, damage, kills, score, match state,
+respawns and unlocks are all decided by the server, and every command is
+bounds\-checked and rate\-limited before it is applied.
+.SH SEE ALSO
+.BR hardpoint (6)
