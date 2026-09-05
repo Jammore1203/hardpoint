@@ -4,7 +4,7 @@
 use super::{App, Screen, TextTarget};
 use crate::assets::materials::Surface;
 use crate::game::events::{DeathCause, GameEvent, ImpactKind};
-use crate::game::types::{Buttons, HitZone, InputCmd, Stance, Team};
+use crate::game::types::{Buttons, HitZone, InputCmd, Stance, Team, MAX_PLAYERS};
 use crate::input::Action;
 use crate::modes::Phase;
 use crate::ui::widgets::UiSound;
@@ -333,10 +333,24 @@ impl App {
                         self.client.as_ref().unwrap(), player,
                     ).map(|(p, _)| p).unwrap_or(origin);
                     self.effects.muzzle_flash(muzzle, dir, def.flash_scale);
-                    // A visible tracer for a fraction of shots, which is what
-                    // lets a player read where fire is coming from.
-                    if def.pellets == 1 {
-                        let end = muzzle + dir * 60.0;
+                    // A tracer has to stop where the round stopped. Drawing a
+                    // fixed sixty metres along the fire direction sent streaks
+                    // straight through walls and terrain, which is what made
+                    // other people's fire look wrong. Trace it against the
+                    // world from the position the server actually fired from,
+                    // then draw from the muzzle we can see to that point.
+                    self.tracer_countdown[player as usize % MAX_PLAYERS] += 1;
+                    let show = self.tracer_countdown[player as usize % MAX_PLAYERS] % 3 == 0;
+                    if def.pellets == 1 && show {
+                        let reach = def.range_far.max(60.0) * 1.5;
+                        let end = match &self.map {
+                            Some(m) => {
+                                let hit = m.collision.trace_ray(
+                                    origin, dir, reach, crate::maps::brush::TraceMask::Shot);
+                                if hit.hit { hit.point } else { origin + dir * reach }
+                            }
+                            None => origin + dir * reach,
+                        };
                         self.effects.tracer(muzzle, end, [1.0, 0.82, 0.45, 0.75]);
                     }
                     if let Some(bank) = self.audio.bank.clone() {

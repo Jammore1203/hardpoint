@@ -58,6 +58,10 @@ pub struct Personality {
     pub nade_appetite: f32,
     /// How much it strafes while fighting.
     pub strafe: f32,
+    /// Fraction of its own weapon recoil the bot cancels. Nobody cancels all
+    /// of it; bots used to cancel it perfectly by rebuilding their aim from
+    /// the target every tick.
+    pub recoil_control: f32,
     /// Preferred distance multiplier applied to its weapon's ideal range.
     pub range_bias: f32,
 }
@@ -66,15 +70,24 @@ impl Personality {
     /// Builds a personality from a difficulty tier plus per-bot variation.
     pub fn roll(difficulty: u8, rng: &mut Rng) -> Personality {
         // 0 recruit, 1 regular, 2 veteran, 3 elite.
+        //
+        // These were tuned far too high: a default-difficulty bot held about
+        // half a degree of aim error at thirty metres, reacted in a third of a
+        // second, and took no recoil at all, which is better than a good human
+        // can manage. A regular is meant to be beatable by someone who has
+        // just picked the game up.
         let d = difficulty.min(3) as f32 / 3.0;
         Personality {
             aggression: clampf(0.30 + d * 0.45 + rng.range(-0.15, 0.15), 0.05, 1.0),
-            jitter: clampf((1.35 - d * 1.05) * rng.range(0.75, 1.30), 0.05, 2.0),
-            reaction: clampf((0.62 - d * 0.44) * rng.range(0.7, 1.35), 0.06, 1.2),
-            turn_rate: clampf(3.2 + d * 5.5 + rng.range(-0.8, 0.8), 1.5, 12.0),
+            jitter: clampf((3.10 - d * 2.35) * rng.range(0.75, 1.30), 0.20, 4.0),
+            reaction: clampf((0.95 - d * 0.62) * rng.range(0.75, 1.40), 0.14, 1.6),
+            turn_rate: clampf(2.4 + d * 5.2 + rng.range(-0.6, 0.6), 1.2, 11.0),
             nade_appetite: clampf(0.12 + d * 0.28 + rng.range(-0.08, 0.08), 0.0, 0.8),
             strafe: clampf(0.35 + d * 0.45 + rng.range(-0.2, 0.2), 0.0, 1.0),
             range_bias: rng.range(0.75, 1.25),
+            // How much of their own recoil a bot cancels. Nobody cancels all
+            // of it; a recruit barely holds the weapon down at all.
+            recoil_control: clampf(0.15 + d * 0.65 + rng.range(-0.10, 0.10), 0.0, 0.92),
         }
     }
 }
@@ -106,6 +119,9 @@ pub struct Bot {
     post_until: f64,
     /// Cooldown so a bot does not flick between weapons every tick.
     swap_ready_at: f64,
+    /// A held aim offset, re-rolled every so often.
+    aim_bias: (f32, f32),
+    aim_bias_until: f64,
     /// Position at the last stuck check, and when it was taken.
     stuck_from: Vec3,
     stuck_at: f64,
@@ -152,6 +168,8 @@ impl Bot {
             post_radius: 0.0,
             post_until: 0.0,
             swap_ready_at: 0.0,
+            aim_bias: (0.0, 0.0),
+            aim_bias_until: 0.0,
             stuck_from: Vec3::ZERO,
             stuck_at: 0.0,
             unstick_until: 0.0,
@@ -560,10 +578,22 @@ impl Bot {
                 // Error grows with distance and shrinks with skill.
                 let dist = to.length();
                 let err = self.personality.jitter * 0.011 * (1.0 + dist * 0.014);
-                let ex = (self.wander_phase * 1.31).sin() * err;
-                let ey = (self.wander_phase * 0.97).cos() * err * 0.6;
-                let target_yaw = want_yaw + ex;
-                let target_pitch = clampf(want_pitch + ey, -1.5, 1.5);
+                // A smooth sine sweeps through perfect aim on a fixed cadence,
+                // which is why bots landed shots so reliably. Hold a random
+                // offset for a beat as well, the way a person's aim settles
+                // slightly off and stays there.
+                if now >= self.aim_bias_until {
+                    self.aim_bias_until = now + self.rng.range(0.35, 1.1) as f64;
+                    self.aim_bias = (self.rng.range(-1.0, 1.0), self.rng.range(-1.0, 1.0));
+                }
+                let ex = (self.wander_phase * 1.31).sin() * err * 0.6 + self.aim_bias.0 * err;
+                let ey = (self.wander_phase * 0.97).cos() * err * 0.4 + self.aim_bias.1 * err * 0.7;
+                // Their own recoil, only partly cancelled.
+                let slip = 1.0 - self.personality.recoil_control;
+                let rp = world.player(self.slot).map(|p| p.recoil.pitch_kick).unwrap_or(0.0);
+                let ry = world.player(self.slot).map(|p| p.recoil.yaw_kick).unwrap_or(0.0);
+                let target_yaw = want_yaw + ex + ry * slip;
+                let target_pitch = clampf(want_pitch + ey + rp * slip, -1.5, 1.5);
 
                 let rate = self.personality.turn_rate * dt;
                 let dyaw = angle_delta(self.aim_yaw, target_yaw);

@@ -17,6 +17,7 @@ use crate::audio::{AudioEngine, SoundBank};
 use crate::core::{FrameClock, RateLimiter};
 use crate::game::loadout::Loadout;
 use crate::input::{Action, InputState};
+use crate::game::types::MAX_PLAYERS;
 use crate::maps::{MapData, MapId};
 use crate::modes::ModeId;
 use crate::net::client::{Client, ClientState};
@@ -146,7 +147,7 @@ impl Default for HostOptions {
             map: MapId::Ironveil,
             mode: ModeId::TeamDeathmatch,
             bots: 8,
-            difficulty: 2,
+            difficulty: 1,
             max_players: 12,
             friendly_fire: false,
             score_limit: ModeId::TeamDeathmatch.default_score_limit(),
@@ -227,6 +228,8 @@ pub struct App {
     exit_at: f64,
     /// Frame times collected for --bench style reporting.
     bench: Option<Vec<f32>>,
+    /// Per-shooter shot counter, so only every third round draws a tracer.
+    tracer_countdown: [u8; MAX_PLAYERS],
     /// Set when the session was launched pointing at an external server.
     pub joined_remote: bool,
 }
@@ -339,6 +342,7 @@ impl App {
             visits: parse_visits(),
             exit_at: std::env::var("HARDPOINT_EXIT_AT").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0),
             bench: std::env::var_os("HARDPOINT_BENCH").map(|_| Vec::with_capacity(1 << 16)),
+            tracer_countdown: [0; MAX_PLAYERS],
             joined_remote: false,
         })
     }
@@ -538,6 +542,7 @@ impl App {
 
         self.input.end_frame();
         self.limiter.wait();
+        if self.bench.is_none() && self.exit_at > 0.0 { /* score still reported */ }
         if let Some(b) = &mut self.bench {
             // Only frames of actual gameplay: menus are not the thing being
             // measured, and the first second is load and warm-up.
@@ -579,7 +584,14 @@ impl App {
                 0 => {
                     self.host = HostOptions {
                         name: "SCREENSHOT SERVER".into(),
-                        bots: 9,
+                        bots: std::env::var("HARDPOINT_BOTS").ok()
+                            .and_then(|v| v.parse().ok()).unwrap_or(9),
+                        difficulty: std::env::var("HARDPOINT_BOTSKILL").ok()
+                            .and_then(|v| v.parse().ok()).unwrap_or(HostOptions::default().difficulty),
+                        map: std::env::var("HARDPOINT_MAP").ok()
+                            .and_then(|v| crate::maps::ALL_MAPS.iter()
+                                .find(|m| m.name().eq_ignore_ascii_case(&v)).copied())
+                            .unwrap_or(HostOptions::default().map),
                         ..HostOptions::default()
                     };
                     self.start_host();
@@ -670,6 +682,17 @@ impl App {
     /// Prints frame-time percentiles. Averages hide hitching; the low
     /// percentiles are what a player actually feels.
     fn report_bench(&mut self) {
+        // The local player's tally against the bots: the only honest measure
+        // of how hard the AI actually is, as opposed to how hard bots are on
+        // each other, which is symmetric and says nothing.
+        if let Some(c) = &self.client {
+            if let Some(me) = c.player_info(c.slot) {
+                println!("[score] you {}-{} ({:.2} K/D)  bots: {}",
+                         me.kills, me.deaths,
+                         me.kills as f32 / me.deaths.max(1) as f32,
+                         c.roster.iter().filter(|r| r.present && r.is_bot).count());
+            }
+        }
         let Some(mut b) = self.bench.take() else { return };
         if b.len() < 32 { return; }
         let n = b.len();

@@ -80,6 +80,17 @@ impl<'a> Painter<'a> {
         self.verts.push(v(px0, py1, u0, v1));
     }
 
+    /// An arbitrary convex quad. `rect` covers the interface; this exists so
+    /// the loadout can draw a weapon model without a second render pass.
+    pub fn quad(&mut self, pts: [[f32; 2]; 4], color: Color) {
+        if color[3] <= 0.001 { return; }
+        let s = self.scale;
+        let v = |p: [f32; 2]| UiVertex::new([p[0] * s, p[1] * s], [0.0, 0.0], color, MODE_SOLID);
+        for i in [0usize, 1, 2, 0, 2, 3] {
+            self.verts.push(v(pts[i]));
+        }
+    }
+
     // -------------------------------------------------------------- shapes
 
     pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
