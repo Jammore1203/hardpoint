@@ -749,12 +749,13 @@ impl App {
             self.renderer.texture_memory() as f32 / (1024.0 * 1024.0),
         );
 
-        let Some(mut b) = self.bench.take() else { return };
+        let Some(b) = self.bench.take() else { return };
         if b.len() < 32 { return; }
         let n = b.len();
         let total: f64 = b.iter().map(|v| *v as f64).sum();
-        b.sort_by(|a, c| a.partial_cmp(c).unwrap());
-        let pct = |p: f64| b[((n as f64 * p) as usize).min(n - 1)];
+        let mut sorted = b.clone();
+        sorted.sort_by(|a, c| a.partial_cmp(c).unwrap());
+        let pct = |p: f64| sorted[((n as f64 * p) as usize).min(n - 1)];
         println!(
             "[bench] {} frames  avg {:.1} fps  median {:.1}  1% low {:.1}  0.1% low {:.1}",
             n,
@@ -763,6 +764,31 @@ impl App {
             1.0 / pct(0.99) as f64,
             1.0 / pct(0.999) as f64,
         );
+
+        // Averages hide stutter, and stutter is what a player actually feels.
+        // A frame that takes twice the median is a visible hitch however good
+        // the mean is, so count them and say how they are spread through the
+        // run: a hundred in the first second is a warm-up, a hundred spread
+        // evenly is a leak or a periodic rebuild.
+        let median = pct(0.50).max(1e-6);
+        let mut spikes = 0usize;
+        let mut worst = (0usize, 0.0f32);
+        let mut quarters = [0usize; 4];
+        for (i, &dt) in b.iter().enumerate() {
+            if dt > median * 1.8 {
+                spikes += 1;
+                quarters[(i * 4 / n).min(3)] += 1;
+                if dt > worst.1 { worst = (i, dt); }
+            }
+        }
+        if spikes > 0 {
+            println!(
+                "[hitch] {} frames over {:.1} ms ({:.2}%)  worst {:.1} ms at frame {}  \
+                 quarters {:?}",
+                spikes, median * 1800.0, spikes as f32 * 100.0 / n as f32,
+                worst.1 * 1000.0, worst.0, quarters,
+            );
+        }
     }
 
     fn write_pending_shot(&mut self) {
