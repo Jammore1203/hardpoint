@@ -839,6 +839,13 @@ impl Client {
                             (sb.pos, sb.yaw, sb.pitch, sb.height, sb, true)
                         } else if !sb.present {
                             (sa.pos, sa.yaw, sa.pitch, sa.height, sa, true)
+                        } else if (sb.pos - sa.pos).length() > teleport_distance(span as f32) {
+                            // Further apart than anyone could have run in the
+                            // time between the two: they came through a warp,
+                            // or they respawned. Interpolating would draw them
+                            // sliding across the level at the speed of light,
+                            // so the newer position is taken whole.
+                            (sb.pos, sb.yaw, sb.pitch, sb.height, sb, true)
                         } else {
                             (
                                 sa.pos.lerp(sb.pos, t),
@@ -877,10 +884,14 @@ impl Client {
             if now_dead { p.death_time += dt; } else { p.death_time = 0.0; }
 
             let moved = (target_pos - p.render_pos).length();
-            p.speed = if dt > 0.0 { (moved / dt).min(12.0) } else { 0.0 };
+            // A jump this size is a warp or a respawn, not running. Counting
+            // it would spin the walk cycle like a catherine wheel and leave
+            // the player sprinting on the spot for a second afterwards.
+            let jumped = moved > teleport_distance(dt);
+            p.speed = if dt > 0.0 && !jumped { (moved / dt).min(12.0) } else { 0.0 };
             // Advance the stride phase by distance, so the walk cycle stays in
             // step with the feet at any speed.
-            p.phase += moved * 3.0;
+            if !jumped { p.phase += moved * 3.0; }
             p.render_pos = target_pos;
             p.render_yaw = target_yaw;
             p.render_pitch = target_pitch;
@@ -894,6 +905,7 @@ impl Client {
     }
 
     /// Flags a player as firing, so the animator can kick their arms.
+    ///
     pub fn note_fired(&mut self, slot: u8) {
         if (slot as usize) < MAX_PLAYERS {
             self.players[slot as usize].firing = 1.0;
@@ -1020,4 +1032,15 @@ impl Client {
     pub fn my_team(&self) -> Team {
         self.player_info(self.slot).map(|p| p.team).unwrap_or(Team::None)
     }
+}
+
+/// How far a player could plausibly have moved in `span` seconds.
+///
+/// Anything beyond it did not happen by running: it is a warp or a respawn,
+/// and every part of the client that smooths a position between frames has to
+/// notice, or the player is drawn sliding across the level. The margin is
+/// generous - an explosion can throw someone a long way - and the constant
+/// floor covers a span of zero.
+fn teleport_distance(span: f32) -> f32 {
+    2.0 + crate::game::movement::tune::SPRINT_SPEED * 4.0 * span.max(0.0)
 }

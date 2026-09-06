@@ -71,6 +71,9 @@ pub mod tune {
     /// Speed below which air steering does nothing, to avoid spinning a
     /// player who is essentially falling straight down.
     pub const AIR_STEER_MIN: f32 = 0.8;
+    /// Fastest an updraft will carry a player upward. Without a ceiling on it
+    /// a tall shaft fires people through the roof of the level.
+    pub const MAX_LIFT: f32 = 11.0;
 }
 
 /// The part of a player's state that movement owns. This is exactly what the
@@ -185,6 +188,10 @@ pub struct MoveEvents {
     pub depenetrated: bool,
     /// Fall damage to apply, already scaled.
     pub fall_damage: f32,
+    /// Set on the tick a player came through a warp. Everything that smooths
+    /// a player's position between frames has to be told, or they are drawn
+    /// sliding across the level at the speed of light.
+    pub warped: bool,
 }
 
 /// Advances one player by one command. Pure: identical inputs give identical
@@ -245,6 +252,10 @@ pub fn move_player(
         (st.sprint_t - sprint_delta * 1.8).max(0.0)
     };
 
+    // ------------------------------------------------------------- field
+    // Gravity is a property of where the player is standing, not a constant.
+    let field = world.field_at(st.pos + Vec3::Y * st.height * 0.5);
+
     // ----------------------------------------------------- target speed
     let base = tune::WALK_SPEED + (tune::SPRINT_SPEED - tune::WALK_SPEED) * st.sprint_t;
     let ads_scale = 1.0 + (mods.ads_scale - 1.0) * st.ads_t;
@@ -291,8 +302,19 @@ pub fn move_player(
         let capped = wish_speed.min(tune::AIR_CAP);
         accelerate(&mut st.vel, wish, capped, tune::AIR_ACCEL, dt);
         air_steer(&mut st.vel, wish, dt);
-        st.vel.y -= tune::GRAVITY * dt;
-        if st.vel.y < -tune::MAX_FALL { st.vel.y = -tune::MAX_FALL; }
+        st.vel.y -= tune::GRAVITY * field.gravity * dt;
+        // Terminal velocity scales with the local gravity, so a low-gravity
+        // shaft is a drift rather than a slow fall that suddenly is not.
+        let terminal = tune::MAX_FALL * field.gravity.max(0.15);
+        if st.vel.y < -terminal { st.vel.y = -terminal; }
+    }
+
+    // An updraft acts on a player standing in it as well as one already off
+    // the floor, or there would be no way into one from the ground. The
+    // ground probe lets go on its own once the rise passes its threshold.
+    if field.lift != 0.0 {
+        st.vel.y += field.lift * dt;
+        if st.vel.y > tune::MAX_LIFT { st.vel.y = tune::MAX_LIFT; }
     }
 
     // ---------------------------------------------------------- integrate
@@ -379,6 +401,28 @@ pub fn move_player(
         }
     } else if !st.grounded {
         st.stride = tune::STRIDE * 0.5;
+    }
+
+    // ------------------------------------------------------------- warps
+    //
+    // Taken last, on the position the player actually finished the tick at,
+    // so that arriving is never entangled with the step-up or ground probe
+    // that got them there. Speed and heading are carried through untouched.
+    //
+    // A warp is authored so that its exit is not inside another mouth - the
+    // map audit checks it - which is what stops a player ping-ponging.
+    if let Some(w) = world.warp_at(st.pos) {
+        st.pos = w.landing(st.vel);
+        resolve_penetration(st, world);
+        let (g, gb) = probe_ground(st, world);
+        st.grounded = g;
+        st.ground_brush = gb;
+        if g && st.vel.y < 0.0 { st.vel.y = 0.0; }
+        ev.warped = true;
+        // Not a landing, however far the exit is above the floor: the fall
+        // that would have hurt happened somewhere the player is no longer.
+        ev.landed = None;
+        ev.fall_damage = 0.0;
     }
 
     // Numerical hygiene: never let a NaN escape into the network stream.
@@ -863,5 +907,99 @@ mod stair_tests {
                          walking speed survives the staircase", f * 100.0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod warp_tests {
+    use super::*;
+    use crate::game::types::{Buttons, InputCmd, Stance};
+    use crate::maps::MapId;
+
+    /// Walks a player forward along `dir` for up to `secs` and reports where
+    /// they ended up, plus whether they came through a warp on the way.
+    fn walk(map: &crate::maps::MapData, from: Vec3, dir: Vec3, secs: f32) -> (Vec3, u32) {
+        let mods = MoveMods {
+            weapon_scale: 1.0, ads_scale: 1.0, perk_scale: 1.0,
+            block_sprint: false, want_ads: false, ads_time: 0.25,
+        };
+        let dt = 1.0 / 90.0;
+        let yaw = crate::math::angles_from_dir(dir.normalize()).0;
+        let mut st = MoveState::default();
+        st.pos = from;
+        st.height = Stance::Stand.height();
+        st.stance = Stance::Stand;
+        st.grounded = true;
+        let cmd = InputCmd { seq: 0, dt_ms: 11, move_f: 127, move_r: 0,
+                             yaw, pitch: 0.0, buttons: Buttons::empty(), weapon: 0xFF };
+        let mut warps = 0u32;
+        for _ in 0..((secs / dt) as usize) {
+            let ev = move_player(&mut st, &cmd, &mods, &map.collision, dt);
+            if ev.warped { warps += 1; }
+        }
+        (st.pos, warps)
+    }
+
+    /// A player who walks into one end of a warp comes out of the other, and
+    /// a player who walks into it from the other side is not bounced back and
+    /// forth between the two.
+    ///
+    /// The exit side has to follow the direction of travel. With a fixed exit
+    /// point, one of the two approaches puts the player down facing the mouth
+    /// they just came out of, and they ping-pong for as long as they hold the
+    /// key - which is what this counts.
+    #[test]
+    fn a_warp_carries_a_player_through_once() {
+        let map = crate::maps::library::build(MapId::Deepwell);
+        assert!(!map.collision.warps.is_empty(), "Deepwell has no warps to test");
+
+        // The pair runs north-south in the west corridor: mouths at z = -14
+        // and z = 16, with four blast bulkheads between them the long way.
+        let (north, warps) = walk(&map, Vec3::new(-9.0, 0.1, -17.0), Vec3::Z, 2.5);
+        assert_eq!(warps, 1, "walking north through the south gate warped {warps} times");
+        assert!(north.z > 14.0,
+                "should have come out at the north gate, ended at {north:?}");
+
+        let (south, warps) = walk(&map, Vec3::new(-9.0, 0.1, 18.5), Vec3::NEG_Z, 2.5);
+        assert_eq!(warps, 1, "walking south through the north gate warped {warps} times");
+        assert!(south.z < -11.0,
+                "should have come out at the south gate, ended at {south:?}");
+    }
+
+    /// A player standing in an updraft leaves the floor, and one in a
+    /// low-gravity room jumps higher than one outside it.
+    #[test]
+    fn a_field_changes_what_gravity_does() {
+        let map = crate::maps::library::build(MapId::Deepwell);
+        let inside = map.collision.field_at(Vec3::new(0.0, 1.0, 0.0));
+        let outside = map.collision.field_at(Vec3::new(-20.0, 1.0, -20.0));
+        assert!(inside.gravity < 0.5, "the middle room should be light");
+        assert_eq!(outside.gravity, 1.0, "the rest of the deck should not be");
+
+        let jump = |at: Vec3| -> f32 {
+            let mods = MoveMods {
+                weapon_scale: 1.0, ads_scale: 1.0, perk_scale: 1.0,
+                block_sprint: false, want_ads: false, ads_time: 0.25,
+            };
+            let dt = 1.0 / 120.0;
+            let mut st = MoveState::default();
+            st.pos = at;
+            st.height = Stance::Stand.height();
+            st.stance = Stance::Stand;
+            st.grounded = true;
+            let mut peak = at.y;
+            for i in 0..300 {
+                let buttons = if i < 4 { Buttons::JUMP } else { Buttons::empty() };
+                let cmd = InputCmd { seq: 0, dt_ms: 8, move_f: 0, move_r: 0,
+                                     yaw: 0.0, pitch: 0.0, buttons, weapon: 0xFF };
+                move_player(&mut st, &cmd, &mods, &map.collision, dt);
+                peak = peak.max(st.pos.y);
+            }
+            peak - at.y
+        };
+        let light = jump(Vec3::new(0.0, 0.1, 0.0));
+        let normal = jump(Vec3::new(-20.0, 0.1, -20.0));
+        assert!(light > normal * 1.8,
+                "a jump in the light room reached {light:.2}m against {normal:.2}m outside");
     }
 }

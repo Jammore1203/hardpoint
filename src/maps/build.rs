@@ -7,7 +7,7 @@
 //! thickness, doorway height, step size), which is a large part of why the
 //! set feels like one game.
 
-use super::brush::{Brush, BrushFlags, BrushKind, Clips, CollisionWorld, FaceMask, RampAxis, TraceMask};
+use super::brush::{Brush, BrushFlags, BrushKind, Clips, CollisionWorld, FaceMask, Field, Warp, RampAxis, TraceMask};
 use crate::core::Rng;
 use super::nav::NavGrid;
 use super::{Env, MapData, MapId};
@@ -72,6 +72,8 @@ pub struct MapBuilder {
     default_floor: Mat,
     /// Clutter plan, applied in `finish` once the ground is known.
     dressing: Option<(usize, u32, &'static [CoverPiece])>,
+    warps: Vec<Warp>,
+    fields: Vec<Field>,
 }
 
 impl MapBuilder {
@@ -89,6 +91,8 @@ impl MapBuilder {
             default_mat: Mat::Concrete,
             default_floor: Mat::ConcreteFloor,
             dressing: None,
+            warps: Vec::new(),
+            fields: Vec::new(),
         }
     }
 
@@ -653,6 +657,88 @@ impl MapBuilder {
             .tex_scale = 1.4;
     }
 
+    // ------------------------------------------------------ impossible space
+
+    /// A pair of doorways that lead to each other.
+    ///
+    /// Builds a frame at each end, hangs the sheet in the opening, and
+    /// registers both volumes pointing at the other. `(ax, az)` and
+    /// `(bx, bz)` are the two doorways; `run_x` says which way each one
+    /// spans - a gate that spans X is one you walk through travelling along
+    /// Z. Both ends of a pair span the same axis, because the player's
+    /// heading is carried through untouched: walk north into one and you come
+    /// out of the other still walking north, on its north side.
+    #[allow(clippy::too_many_arguments)]
+    pub fn warp_pair(&mut self, ax: f32, az: f32, bx: f32, bz: f32,
+                     y: f32, w: f32, h: f32, run_x: bool, tag: u8) {
+        let through = if run_x { Vec3::Z } else { Vec3::X };
+        self.warp_gate(ax, y, az, w, h, run_x, Vec3::new(bx, y, bz), through, tag);
+        self.warp_gate(bx, y, bz, w, h, run_x, Vec3::new(ax, y, az), through, tag);
+    }
+
+    /// One end of a warp: the frame, the sheet and the volume.
+    ///
+    /// The mouth is nearly a metre deep. A thin one can be stepped straight
+    /// over: the mover sweeps its whole tick of motion before anything looks
+    /// at where it ended up, and at eight metres a second a sheet a
+    /// centimetre thick is missed more often than it is hit.
+    #[allow(clippy::too_many_arguments)]
+    pub fn warp_gate(&mut self, x: f32, y: f32, z: f32, w: f32, h: f32, run_x: bool,
+                     exit: Vec3, through: Vec3, tag: u8) {
+        const POST: f32 = 0.30;
+        const DEEP: f32 = 0.42;
+        /// How far clear of the far doorway a player is put down. Wider than
+        /// the mouth is deep, so arriving never lands them back inside one.
+        const CLEAR: f32 = 1.45;
+
+        // Frame. Solid, so the opening is a doorway with edges to take cover
+        // behind rather than a rectangle painted on the air.
+        if run_x {
+            self.boxx(x - w * 0.5 - POST, y, z - DEEP * 0.5, POST, h + POST, DEEP, Mat::MetalPanel);
+            self.boxx(x + w * 0.5, y, z - DEEP * 0.5, POST, h + POST, DEEP, Mat::MetalPanel);
+            self.boxx(x - w * 0.5 - POST, y + h, z - DEEP * 0.5, w + POST * 2.0, POST, DEEP, Mat::MetalPanel);
+        } else {
+            self.boxx(x - DEEP * 0.5, y, z - w * 0.5 - POST, DEEP, h + POST, POST, Mat::MetalPanel);
+            self.boxx(x - DEEP * 0.5, y, z + w * 0.5, DEEP, h + POST, POST, Mat::MetalPanel);
+            self.boxx(x - DEEP * 0.5, y + h, z - w * 0.5 - POST, DEEP, POST, w + POST * 2.0, Mat::MetalPanel);
+        }
+
+        // The sheet. Decor, so it is drawn and lit and walked straight
+        // through; a solid one would simply be a wall.
+        let (shx, shz) = if run_x { (w, 0.10) } else { (0.10, w) };
+        self.decor(x - shx * 0.5, y, z - shz * 0.5, shx, h, shz, Mat::Warp)
+            .tex_scale = 2.2;
+
+        self.warps.push(Warp {
+            mouth: Aabb::new(
+                Vec3::new(x - if run_x { w * 0.5 } else { 0.48 }, y,
+                          z - if run_x { 0.48 } else { w * 0.5 }),
+                Vec3::new(x + if run_x { w * 0.5 } else { 0.48 }, y + h,
+                          z + if run_x { 0.48 } else { w * 0.5 }),
+            ),
+            exit,
+            through,
+            clearance: CLEAR,
+            tag,
+        });
+    }
+
+    /// A volume where gravity is not what it is elsewhere.
+    ///
+    /// `gravity` scales the fall and `lift` is a constant upward
+    /// acceleration; a shaft whose lift beats its gravity is an updraft that
+    /// will pick a player up off the floor and hold them there.
+    #[allow(clippy::too_many_arguments)]
+    pub fn field(&mut self, x: f32, y: f32, z: f32, sx: f32, sy: f32, sz: f32,
+                 gravity: f32, lift: f32) -> &mut Self {
+        self.fields.push(Field {
+            volume: Aabb::new(Vec3::new(x, y, z), Vec3::new(x + sx, y + sy, z + sz)),
+            gravity,
+            lift,
+        });
+        self
+    }
+
     /// An octagonal prism that nothing collides with.
     ///
     /// The decorative twin of `column`, for the things that want a round
@@ -1215,6 +1301,11 @@ impl MapBuilder {
             collision = CollisionWorld::new(self.brushes.clone());
             nav = NavGrid::bake(&collision, play);
         }
+        // Warp mouths are holes in the navigation graph, not parts of it.
+        let mouths: Vec<Aabb> = self.warps.iter().map(|w| w.mouth).collect();
+        nav.drop_nodes_in(&mouths);
+        collision.warps = std::mem::take(&mut self.warps);
+        collision.fields = std::mem::take(&mut self.fields);
 
         let mut map = MapData {
             id: self.id,

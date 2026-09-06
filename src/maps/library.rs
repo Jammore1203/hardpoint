@@ -812,6 +812,15 @@ fn stormworks(b: &mut MapBuilder) {
     b.skirt(0x1A0B, 34, 2.6, Mat::Gravel);
     b.backdrop(0x1A0B, 34.0, 48, 8.0, 22.0, &[Mat::Corrugated, Mat::MetalRust, Mat::BrickRed]);
 
+    // --- The two ends of the warehouse are the same end.
+    //
+    // East and west walls, twenty-eight metres out from the middle on either
+    // side, joined to each other. Walking east through the west door puts you
+    // at the east one still walking east - at the far end of the building,
+    // behind whoever was pushing you toward the wall you were just standing
+    // against.
+    b.warp_pair(-28.0, 0.0, 28.0, 0.0, 0.0, 3.2, 2.8, false, 3);
+
 }
 
 // =================================================================== BELVOIR
@@ -1979,6 +1988,16 @@ fn foundry(b: &mut MapBuilder) {
     b.skirt(0x1A07, 34, 2.6, Mat::Gravel);
     b.backdrop(0x1A07, 30.0, 44, 10.0, 26.0, &[Mat::BrickRed, Mat::Facade, Mat::MetalRust, Mat::Corrugated]);
 
+    // --- Two doorways standing in an empty hall.
+    //
+    // Nothing is built round them and they hold nothing up: two frames on the
+    // shop floor, one at each end of the north-south aisle, sixty metres
+    // apart and the same door. In a building this open they are the only
+    // things that cannot be explained by looking at them, which is why they
+    // are out where they can be seen from anywhere rather than tucked into a
+    // corridor.
+    b.warp_pair(0.0, -26.0, 0.0, 26.0, 0.0, 3.2, 2.8, true, 1);
+
 }
 
 // ================================================================== SALTBITE
@@ -2307,6 +2326,34 @@ fn deepwell(b: &mut MapBuilder) {
     b.skirt(0x1A09, 34, 2.0, Mat::Concrete);
     b.backdrop(0x1A09, 26.0, 36, 4.0, 9.0, &[Mat::Bunker, Mat::Concrete]);
 
+    // --- The deck does not join up.
+    //
+    // A bunker is the right place for a plan that does not close: nobody down
+    // here can see the sky, so there is nothing to check the shape of the
+    // building against. Two doorways in the long west corridor, thirty-four
+    // metres apart, are one door. Walk north through the southern one and you
+    // step out of the northern one still walking north, having crossed a
+    // third of the map without passing anything.
+    //
+    // Both stand in a six-metre corridor and are three wide, so there is a
+    // way past either of them on both sides. Navigation drops the mouths, so
+    // bots go round; the shortcut belongs to whoever thinks to use it.
+    b.warp_pair(-9.0, -14.0, -9.0, 16.0, 0.0, 3.0, 2.6, true, 0);
+
+    // --- The middle room weighs less than the rest of the building.
+    //
+    // Gravity in the central block is a third of what it is on the other side
+    // of its walls, which makes the room everyone has to fight over the one
+    // room where nobody's feet are reliably on the floor. It is a room rather
+    // than a shaft on purpose: the four stairwells already carry stairs, and
+    // an updraft over one of those is just a broken staircase.
+    b.field(-5.0, 0.0, -5.0, 10.0, 3.4, 10.0, 0.30, 0.0);
+    // Striping inside the doorways, so the change is announced at the
+    // threshold rather than discovered halfway through a jump.
+    for (x, z, sx, sz) in [(-5.0f32, -5.4f32, 10.0f32, 0.4f32), (-5.0, 5.0, 10.0, 0.4),
+                           (-5.4, -5.0, 0.4, 10.0), (5.0, -5.0, 0.4, 10.0)] {
+        b.decor(x, 0.02, z, sx, 0.04, sz, Mat::HazardStripe);
+    }
 }
 
 // ================================================================== JUNCTION
@@ -2483,6 +2530,15 @@ fn junction(b: &mut MapBuilder) {
     //     A level that stops at its own walls reads as a diorama.
     b.skirt(0x1A0A, 34, 2.8, Mat::Gravel);
     b.backdrop(0x1A0A, 40.0, 56, 7.0, 19.0, &[Mat::Corrugated, Mat::BrickRed, Mat::Facade, Mat::MetalRust]);
+
+    // --- The yard is longer across than it is along.
+    //
+    // The rakes run east-west, so crossing the yard means climbing over or
+    // walking round every one of them; it is the slow axis by design. A pair
+    // of doorways at the two ends of the north-south aisle turns that
+    // crossing into a step, for anyone who works out that the yard has two
+    // widths depending on which one you use.
+    b.warp_pair(0.0, -26.0, 0.0, 26.0, 0.0, 3.2, 2.8, true, 2);
 
 }
 

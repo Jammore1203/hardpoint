@@ -92,6 +92,9 @@ pub enum Mat {
     /// wall texture cannot give it is storeys, because storeys are how the
     /// eye reads a silhouette as a building and works out how far away it is.
     Facade,
+    /// The sheet across a warp mouth. Emissive, so a door that leads
+    /// somewhere else lights the room it is in.
+    Warp,
     Mesh,
 }
 
@@ -154,7 +157,7 @@ impl Mat {
             MetalPlateDiamond | ControlPanel => 0.55,
             // The polished end.
             TileFloor | Marble => 0.70,
-            Screen => 0.78,
+            Screen | Warp => 0.78,
             Ice => 0.85,
             Glass | WindowLit => 0.95,
             WaterSurface => 0.92,
@@ -254,6 +257,7 @@ impl Mat {
             Duct => [140, 142, 144],
             GunMetal => [60, 63, 70],
             GunPolymer => [40, 41, 44],
+            Warp => [104, 74, 168],
             Facade => [148, 144, 136],
             Mesh => [104, 108, 110],
         }
@@ -273,6 +277,9 @@ impl Mat {
     /// Slightly emissive surfaces get a lighting floor so they read at night.
     pub fn emissive(self) -> f32 {
         match self {
+            // Bright enough to be the only light in a room, because in
+            // several places it is.
+            Mat::Warp => 0.78,
             Mat::WindowLit => 0.55,
             Mat::Screen => 0.40,
             Mat::ControlPanel => 0.22,

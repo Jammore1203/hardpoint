@@ -382,6 +382,32 @@ impl MapData {
                 issues.push(format!("{}: pickup {} ({:?}) floats at {:?}", self.name(), i, p.kind, p.pos));
             }
         }
+        // Warps. Two of these can be authored so that they feed each other,
+        // and a player who walks into the pair is then bounced between them
+        // for as long as they hold the key. It is invisible in the geometry
+        // and obvious the moment anyone tries it, which is exactly the kind
+        // of thing that has to be checked here rather than in play.
+        for (i, w) in self.collision.warps.iter().enumerate() {
+            for side in [-1.0f32, 1.0] {
+                let landing = w.exit + w.through * (side * w.clearance);
+                if let Some(other) = self.collision.warp_at(landing) {
+                    let _ = other;
+                    issues.push(format!(
+                        "{}: warp {} puts players down inside another mouth at {:?}",
+                        self.name(), i, landing));
+                }
+                if self.collision.ground_below(landing + Vec3::Y * 0.9, 0.3, 6.0).is_none() {
+                    issues.push(format!("{}: warp {} exits over nothing at {:?}",
+                                        self.name(), i, landing));
+                }
+                let body = crate::math::Aabb::from_base(landing, 0.34, 1.78);
+                if self.collision.box_blocked(&body, crate::maps::brush::TraceMask::Solid) {
+                    issues.push(format!("{}: warp {} exits inside geometry at {:?}",
+                                        self.name(), i, landing));
+                }
+            }
+        }
+
         // Connectivity: everything a player must reach has to sit in the same
         // navigation component, otherwise part of the level is a dead pocket.
         if !self.nav.nodes.is_empty() {

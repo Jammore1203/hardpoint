@@ -362,6 +362,35 @@ impl NavGrid {
             }
         }
 
+        self.retain_nodes(|i| keep[comp[i] as usize]);
+    }
+
+    /// Drops every node inside any of `volumes`, and every link to one.
+    ///
+    /// Warp mouths are holes in the navigation graph rather than parts of it.
+    /// A bot that walks into one is put down on the far side of the level
+    /// with its path pointing at somewhere it is no longer near, and if the
+    /// mouth happens to sit on the shortest route to what it wanted, it will
+    /// walk back into the same door for as long as the round lasts. Every
+    /// warp is authored beside an ordinary way round, so taking the doors out
+    /// of the graph costs the bots nothing but the shortcut.
+    pub fn drop_nodes_in(&mut self, volumes: &[Aabb]) {
+        if volumes.is_empty() || self.nodes.is_empty() { return; }
+        let nodes = self.nodes.clone();
+        self.retain_nodes(|i| {
+            let p = nodes[i].pos;
+            !volumes.iter().any(|v| {
+                // A node is in the way if a player standing on it would be
+                // inside the mouth, so the test is against the body rather
+                // than the point on the floor.
+                v.overlaps(&Aabb::new(p - Vec3::new(0.3, 0.0, 0.3),
+                                      p + Vec3::new(0.3, 1.8, 0.3)))
+            })
+        });
+    }
+
+    /// Rebuilds the graph keeping only the nodes `keep` accepts.
+    fn retain_nodes(&mut self, keep: impl Fn(usize) -> bool) {
         let old_nodes = std::mem::take(&mut self.nodes);
         let old_links = std::mem::take(&mut self.links);
         let old_link_start = std::mem::take(&mut self.link_start);
@@ -371,7 +400,7 @@ impl NavGrid {
         let mut remap = vec![u32::MAX; old_nodes.len()];
         let mut nodes = Vec::with_capacity(old_nodes.len());
         for (i, n) in old_nodes.iter().enumerate() {
-            if keep[comp[i] as usize] {
+            if keep(i) {
                 remap[i] = nodes.len() as u32;
                 nodes.push(*n);
             }

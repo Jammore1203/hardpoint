@@ -1068,6 +1068,42 @@ fn gen_tread(p: &mut Painter, tint: [u8; 3], seed: u32) {
 /// What a panel of this period actually was: a dark brushed face inside a
 /// bezel, a recessed screen, two gauges, and rows of small indicator lamps in
 /// amber and green with a red one to worry about.
+/// The sheet across a warp mouth.
+///
+/// A door that opens onto somewhere it has no business opening onto should
+/// not look like a door. This is an interference pattern: two sets of rings
+/// struck from points that are not where the door is, beating against each
+/// other, with the whole thing folded back on itself where it gets bright.
+/// It has no scale of its own and no orientation, which is the point - there
+/// is nothing in it to tell you which way up the far side is.
+fn gen_warp(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
+    p.shade_rgb(|u, v| {
+        // Two ring sources, deliberately off-centre and off-tile, so the
+        // pattern never resolves into something symmetrical.
+        let d1 = ((u - 0.32).powi(2) + (v - 0.61).powi(2)).sqrt();
+        let d2 = ((u - 0.78).powi(2) + (v - 0.24).powi(2)).sqrt();
+        let beat = (d1 * 74.0).sin() * (d2 * 61.0).sin();
+        // The absolute value puts a hard null everywhere the two sets of
+        // rings cancel, which is what turns a smooth beat into visible
+        // fringes rather than watered silk.
+        let fringes = beat.abs();
+        let churn = fbm(u * 5.0 + 3.0, v * 5.0 + 3.0, 6, 3, seed) - 0.5;
+        let t = (fringes * 0.88 + churn * 0.52).clamp(0.0, 1.0);
+        // Near-black in the nulls, hot at the antinodes, through the tint on
+        // the way, so the fringes read at any brightness.
+        let rgb = [
+            base[0] * (0.10 + t * 1.30) + t * t * 0.20,
+            base[1] * (0.10 + t * 1.30) + t * t * 0.30,
+            base[2] * (0.10 + t * 1.30) + t * t * 0.24,
+        ];
+        // Opaque, and painted flat: every other material here is a height
+        // field lit from a fixed direction, and giving this one bumps would
+        // make it read as painted plywood rather than as a hole.
+        (rgb, 1.0)
+    });
+}
+
 fn gen_control_panel(p: &mut Painter, tint: [u8; 3], seed: u32) {
     let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
     let tx = p.texel;
@@ -1295,6 +1331,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         Duct => gen_corrugated(&mut p, tint, 8.0, seed),
         GunMetal => gen_gunmetal(&mut p, tint, seed),
         GunPolymer => gen_polymer(&mut p, tint, seed),
+        Warp => gen_warp(&mut p, tint, seed),
         Facade => gen_facade(&mut p, tint, seed),
         Mesh => gen_grid(&mut p, tint, 10.0, 0.10, true, seed),
     }

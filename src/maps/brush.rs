@@ -384,10 +384,83 @@ impl BrushGrid {
 }
 
 /// Everything the simulation needs to collide against a level.
+/// A door that does not lead where it should.
+///
+/// The two ends of a warp have no geometric relationship: the mouth is a
+/// volume somewhere in the level, and walking into it puts the player down
+/// somewhere else entirely, keeping their speed and their heading. Space in
+/// these maps is not a metric - two rooms can be adjacent through one door
+/// and a hundred metres apart through the next, and a corridor can be longer
+/// going one way than it is coming back.
+///
+/// The heading is deliberately *not* rotated. The player leaves the exit
+/// travelling in the same absolute direction they entered the mouth, which is
+/// the one property that keeps the thing playable: the view never turns
+/// underneath the player's hand, so their aim is exactly where they left it
+/// and there is nothing to fight. It also means a warp needs no agreement
+/// between client and server beyond the movement code they already share -
+/// the same inputs give the same jump on both, so prediction is unaffected.
+/// Pairs are authored with their mouths facing the same way, so continuing
+/// straight ahead is always the sensible thing to do on arrival.
+#[derive(Clone, Copy, Debug)]
+pub struct Warp {
+    /// The volume that triggers it.
+    pub mouth: Aabb,
+    /// Centre of the far doorway, as a feet position.
+    pub exit: Vec3,
+    /// Unit vector along the axis a player walks through both doorways.
+    pub through: Vec3,
+    /// How far clear of the far doorway the player is put down.
+    pub clearance: f32,
+    /// Warps with the same tag are two ends of the same door.
+    pub tag: u8,
+}
+
+impl Warp {
+    /// Where to put a player travelling at `vel` down.
+    ///
+    /// They come out on the side of the far doorway they were already heading
+    /// for. A fixed exit point cannot work: put it on the north side and a
+    /// player who walked in heading south arrives still heading south, walks
+    /// straight back into the far mouth, and is bounced between the two for
+    /// as long as they hold the key.
+    #[inline]
+    pub fn landing(&self, vel: Vec3) -> Vec3 {
+        let side = if vel.dot(self.through) < 0.0 { -1.0 } else { 1.0 };
+        self.exit + self.through * (side * self.clearance)
+    }
+}
+
+/// A volume in which gravity is not what it is everywhere else.
+///
+/// `gravity` scales the fall, and `lift` is a constant upward acceleration on
+/// top of it - a shaft with `lift` above the local gravity is an updraft that
+/// will carry a player off the floor and hold them there.
+#[derive(Clone, Copy, Debug)]
+pub struct Field {
+    pub volume: Aabb,
+    pub gravity: f32,
+    pub lift: f32,
+}
+
+impl Field {
+    /// The field everywhere that has not been given one.
+    pub const NORMAL: Field = Field {
+        volume: Aabb { min: Vec3::ZERO, max: Vec3::ZERO },
+        gravity: 1.0,
+        lift: 0.0,
+    };
+}
+
 pub struct CollisionWorld {
     pub brushes: Vec<Brush>,
     pub grid: BrushGrid,
     pub bounds: Aabb,
+    /// Doors that do not lead where they should. A handful per map at most,
+    /// so they are scanned linearly rather than put in the grid.
+    pub warps: Vec<Warp>,
+    /// Places where gravity is different.
+    pub fields: Vec<Field>,
     /// Brushes that have been shot away. Kept as a flat parallel array rather
     /// than by removing them, so brush indices stay stable: they are the
     /// identity used by the wire protocol, the rendering ranges and the
@@ -417,7 +490,29 @@ impl CollisionWorld {
         }
         let grid = BrushGrid::build(&brushes, bounds);
         let destroyed = vec![false; brushes.len()];
-        CollisionWorld { brushes, grid, bounds, destroyed }
+        CollisionWorld { brushes, grid, bounds, warps: Vec::new(), fields: Vec::new(), destroyed }
+    }
+
+    /// The warp whose mouth contains `feet`, if any.
+    ///
+    /// The test is against the player's feet rather than their box, so
+    /// standing with one shoulder in a doorway does not fire it; you have to
+    /// walk through.
+    #[inline]
+    pub fn warp_at(&self, feet: Vec3) -> Option<&Warp> {
+        self.warps.iter().find(|w| w.mouth.contains_point(feet))
+    }
+
+    /// The field at a point. The last one authored wins where they overlap,
+    /// so a small volume can be dropped inside a large one to carve out an
+    /// exception.
+    #[inline]
+    pub fn field_at(&self, p: Vec3) -> Field {
+        let mut out = Field::NORMAL;
+        for f in &self.fields {
+            if f.volume.contains_point(p) { out = *f; }
+        }
+        out
     }
 
     /// Marks a brush destroyed. Returns false if it was already gone.
