@@ -429,8 +429,25 @@ impl App {
                     }
                 }
                 GameEvent::HitPlayer { attacker, victim, pos, zone, damage, lethal } => {
-                    let dir = if victim == me { (pos - my_pos).normalize_or_zero() } else { Vec3::Y };
+                    // The direction the round was travelling, so the spray
+                    // carries on past the wound rather than away from whoever
+                    // happens to be watching. The shooter's own position is
+                    // the only thing on hand that gives it.
+                    let shooter = self.client.as_ref()
+                        .and_then(|c| c.players.get(attacker as usize))
+                        .filter(|p| p.present)
+                        .map(|p| p.render_pos + Vec3::Y * 1.2)
+                        .unwrap_or(if attacker == me { my_pos + Vec3::Y * 1.2 } else { pos - Vec3::Y });
+                    let dir = (pos - shooter).normalize_or(Vec3::Y);
                     self.effects.blood(pos, dir);
+                    if let Some(map) = self.map.as_ref() {
+                        if lethal {
+                            self.effects.death_gore(pos, dir, &map.collision);
+                        } else {
+                            let gore = (damage as f32 / 90.0).clamp(0.15, 1.0);
+                            self.effects.blood_spray(pos, dir, &map.collision, gore);
+                        }
+                    }
                     if attacker == me {
                         self.hud.hit_marker(zone, lethal);
                         self.hud.damage_number(pos, damage, lethal);

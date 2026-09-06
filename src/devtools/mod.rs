@@ -889,6 +889,40 @@ pub fn stair_test(map_name: &str) -> i32 {
 /// looking at them meant launching a match and finding a wall built out of
 /// the one in question. Eight to a row, index order, with the layer index
 /// printed alongside.
+/// Writes the particle and decal atlas out as a PNG.
+///
+/// The sprites are drawn white and tinted at draw time, so the sheet is
+/// composited over a mid grey with the alpha channel shown as coverage -
+/// otherwise every one of them is an invisible white shape on white.
+pub fn write_sprite_sheet(path: &str) -> i32 {
+    use crate::assets::texgen::{Sprite, SPRITE_CELL, SPRITE_COLS, SPRITE_COUNT};
+    let (size, px) = crate::assets::texgen::generate_sprite_atlas();
+    let mut out = vec![0u8; px.len()];
+    for i in (0..px.len()).step_by(4) {
+        let a = px[i + 3] as f32 / 255.0;
+        // Checkerboard behind, so a soft edge is legible as a soft edge.
+        let (x, y) = ((i / 4) as u32 % size, (i / 4) as u32 / size);
+        let check = if ((x / 16) + (y / 16)) % 2 == 0 { 60u8 } else { 90u8 };
+        for c in 0..3 {
+            out[i + c] = (px[i + c] as f32 * a + check as f32 * (1.0 - a)) as u8;
+        }
+        out[i + 3] = 255;
+    }
+    match std::fs::write(path, png::encode_rgba(size, size, &out)) {
+        Ok(()) => {
+            println!("{} -> {}x{} ({} sprites at {}px, {} per row)",
+                     path, size, size, SPRITE_COUNT, SPRITE_CELL, SPRITE_COLS);
+            for i in 0..SPRITE_COUNT {
+                if i % 4 == 0 { print!("\n  "); }
+                print!("{:>2}:{:<14}", i, format!("{:?}", Sprite::from_index(i)));
+            }
+            println!();
+            0
+        }
+        Err(e) => { eprintln!("{}: {}", path, e); 1 }
+    }
+}
+
 pub fn write_texture_sheet(path: &str, size: u32) -> i32 {
     use crate::assets::materials::{Mat, MAT_COUNT};
     let cell = size.clamp(32, 256);

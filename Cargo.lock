@@ -714,6 +714,7 @@ dependencies = [
  "bytemuck",
  "cpal",
  "glam",
+ "naga",
  "pollster",
  "wgpu",
  "winit",

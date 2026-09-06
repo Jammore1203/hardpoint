@@ -558,6 +558,8 @@ struct SpriteIn {
     @location(4) uv_rect: vec4<f32>,
     @location(5) color: vec4<f32>,
     @location(6) mode: f32,
+    /// Surface normal, used only by mode 2.
+    @location(7) axis: vec3<f32>,
 };
 
 struct SpriteOut {
@@ -573,9 +575,23 @@ fn vs_sprite(in: SpriteIn) -> SpriteOut {
     let s = sin(in.rot);
     let c = cos(in.rot);
     let local = vec2<f32>(in.corner.x * c - in.corner.y * s, in.corner.x * s + in.corner.y * c);
-    // Mode 1 lays the quad flat on the ground (decals, blob shadows).
+    // Mode 1 lays the quad flat on the ground (blob shadows, ground pools).
+    // Mode 2 lays it on an arbitrary surface, for a decal stuck to a wall or
+    // the underside of a roof; mode 0 faces the camera.
     var world: vec3<f32>;
-    if (in.mode > 0.5) {
+    if (in.mode > 1.5) {
+        let n = normalize(in.axis);
+        // Any vector not parallel to the normal will do for the first
+        // tangent; picking the world axis the normal leans on least keeps it
+        // well conditioned on every face.
+        var seed = vec3<f32>(0.0, 1.0, 0.0);
+        if (abs(n.y) > 0.9) { seed = vec3<f32>(1.0, 0.0, 0.0); }
+        let tangent = normalize(cross(seed, n));
+        let bitangent = cross(n, tangent);
+        world = in.pos
+            + tangent * (local.x * in.size.x)
+            + bitangent * (local.y * in.size.y);
+    } else if (in.mode > 0.5) {
         world = in.pos + vec3<f32>(local.x * in.size.x, 0.0, local.y * in.size.y);
     } else {
         world = in.pos

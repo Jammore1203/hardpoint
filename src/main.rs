@@ -19,6 +19,7 @@ Developer tools:
   hardpoint --openness [MAP|ALL]  report how much walkable space has no cover
   hardpoint --icon <path> [size]  write the application icon as a PNG
   hardpoint --textures <path> [px] write every material to one PNG sheet
+  hardpoint --sprites <path>      write the particle and decal atlas as a PNG
   hardpoint --nav <MAP> [height]  print a slice of a map's navigation graph
   hardpoint --probe <MAP> <x> <z> explain one column of a map
   hardpoint --simtest <MAP> [s] [n]   headless movement and collision soak
@@ -44,6 +45,9 @@ fn main() {
         "--textures" => devtools::write_texture_sheet(
             args.get(1).map(|s| s.as_str()).unwrap_or("textures.png"),
             args.get(2).and_then(|s| s.parse().ok()).unwrap_or(128),
+        ),
+        "--sprites" => devtools::write_sprite_sheet(
+            args.get(1).map(|s| s.as_str()).unwrap_or("sprites.png"),
         ),
         "--icon" => devtools::write_icon(
             args.get(1).map(|s| s.as_str()).unwrap_or("hardpoint.png"),

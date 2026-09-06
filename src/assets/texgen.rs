@@ -1323,10 +1323,16 @@ pub enum Sprite {
     Raindrop,
     Glow,
     Cross,
+    /// Blood thrown onto a surface: a ragged blot with satellite droplets.
+    BloodSplat,
+    /// A long directional streak, for the surface behind a hit.
+    BloodSpray,
+    /// A settled pool, for the ground under a body.
+    BloodPool,
 }
 
-pub const SPRITE_COUNT: usize = 16;
-pub const SPRITE_COLS: u32 = 4;
+pub const SPRITE_COUNT: usize = Sprite::BloodPool as usize + 1;
+pub const SPRITE_COLS: u32 = 5;
 /// Particles are drawn large and close -- a smoke puff can be half the
 /// screen -- and there are no mips on this atlas, so the cell size is the
 /// only thing standing between a plume and a staircase.
@@ -1334,6 +1340,14 @@ pub const SPRITE_CELL: u32 = 128;
 pub const SPRITE_ATLAS: u32 = SPRITE_COLS * SPRITE_CELL;
 
 impl Sprite {
+    /// The sprite at an atlas index, for tooling that walks the sheet.
+    pub fn from_index(i: usize) -> Sprite {
+        // The enum is contiguous from zero and `SPRITE_COUNT` is derived from
+        // its last variant, so the cast is total for any index the sheet has.
+        assert!(i < SPRITE_COUNT);
+        unsafe { std::mem::transmute::<u8, Sprite>(i as u8) }
+    }
+
     /// UV rectangle in the sprite atlas.
     pub fn uv(self) -> [f32; 4] {
         let i = self as u32;
@@ -1342,6 +1356,14 @@ impl Sprite {
         let s = SPRITE_ATLAS as f32;
         [x as f32 / s, y as f32 / s, SPRITE_CELL as f32 / s, SPRITE_CELL as f32 / s]
     }
+}
+
+/// Cheap deterministic hash of two floats, for scattering droplets around a
+/// splatter. Unlike the lattice hash the terrain textures use, this one is
+/// sampled at arbitrary positions rather than on integer cells.
+fn splash_hash(x: f32, y: f32) -> f32 {
+    let v = (x * 127.1 + y * 311.7).sin() * 43758.545;
+    v - v.floor()
 }
 
 /// Builds the particle and decal atlas. Everything is white so it can be
@@ -1418,6 +1440,86 @@ pub fn generate_sprite_atlas() -> (u32, Vec<u8>) {
         let ring = ((r - 0.45).abs() * 6.0).min(1.0);
         (0.10 + ring * 0.35 + n * 0.15, a)
     });
+    // ----------------------------------------------------------- blood
+    //
+    // Three shapes rather than one tinted circle. A circle reads as a sticker
+    // wherever it lands; what makes a splatter look like a splatter is that
+    // its outline is broken and it throws droplets clear of the main body.
+    // All three are drawn white and tinted at draw time like everything else
+    // in the atlas.
+
+    // Thrown blot: a lobed body with a scatter of separate droplets.
+    put(Sprite::BloodSplat, &mut |u, v| {
+        let r = (u * u + v * v).sqrt();
+        let ang = v.atan2(u);
+        // Lobes of two different frequencies, so the outline has no period.
+        let lobes = (ang * 3.0).sin() * 0.11 + (ang * 7.0 + 1.7).sin() * 0.06;
+        let edge = fbm(u * 3.0 + 13.0, v * 3.0 + 13.0, 8, 3, 91) * 0.16;
+        let body = ((0.62 + lobes + edge - r) * 6.0).clamp(0.0, 1.0);
+        // Droplets on a coarse lattice, thinning with distance from the blot.
+        let mut drops = 0.0f32;
+        for k in 0..7 {
+            let h = splash_hash(k as f32 * 3.7 + 0.5, k as f32 * 1.9 + 2.1);
+            let a = h * 6.2832;
+            let d = 0.66 + splash_hash(k as f32 * 5.1, k as f32 * 0.7) * 0.32;
+            let (dx, dy) = (u - a.cos() * d, v - a.sin() * d);
+            let rad = 0.035 + splash_hash(k as f32 * 2.3, k as f32 * 4.9) * 0.055;
+            drops = drops.max((1.0 - (dx * dx + dy * dy).sqrt() / rad).clamp(0.0, 1.0));
+        }
+        // Darker in the middle where it pooled, lighter at the thin edge.
+        let lum = 0.55 + (1.0 - body) * 0.45;
+        ((lum).min(1.0), (body + drops * 0.9).min(1.0))
+    });
+
+    // Directional spray: a fan of streaks thrown out from one edge.
+    //
+    // The cell is read as a fan with its origin at the left edge: `t` runs
+    // along the throw and `across` is the angle within it, so a band of
+    // constant `across` is one streak radiating from the wound. Breaking the
+    // far end into droplets is what stops it reading as a paintbrush stroke.
+    put(Sprite::BloodSpray, &mut |u, v| {
+        let t = ((u + 1.0) * 0.5).clamp(0.0, 1.0);
+        let spread = 0.24 + t * 0.70;
+        let across = v / spread;
+        let edge = (1.0 - across.abs()).clamp(0.0, 1.0);
+        // Streaks: bands in the angular coordinate, at two frequencies so
+        // they do not comb.
+        let bands = ((across * 5.0).sin() * 0.5 + 0.5) * 0.6
+                  + ((across * 11.0 + 2.1).sin() * 0.5 + 0.5) * 0.4;
+        let streak = 0.48 + bands.powf(1.4) * 0.52;
+        let breakup = fbm(t * 7.0 + 21.0, across * 4.0 + 21.0, 8, 3, 57);
+        // Solid at the wound, thinning and patchy as it travels.
+        let taper = (1.0 - t * 0.62).clamp(0.0, 1.0).powf(0.5);
+        let body = edge.powf(0.45) * streak * taper * (0.62 + breakup * 1.0);
+        // Droplets flung past the end of the fan.
+        let mut drops = 0.0f32;
+        for k in 0..6 {
+            let a = (splash_hash(k as f32 * 1.3, 7.7) * 2.0 - 1.0) * 0.85;
+            let d = 0.35 + splash_hash(k as f32 * 4.1, 2.9) * 0.62;
+            let (dx, dy) = (u - (d * 2.0 - 1.0), v - a * (0.07 + d * 0.82));
+            let rad = 0.02 + splash_hash(k as f32 * 6.7, 5.3) * 0.045;
+            drops = drops.max((1.0 - (dx * dx + dy * dy).sqrt() / rad).clamp(0.0, 1.0));
+        }
+        (0.58 + t * 0.32, (body + drops * 0.85).clamp(0.0, 1.0))
+    });
+
+    // Settled pool: nearly solid, with a wet rim and a couple of runs.
+    put(Sprite::BloodPool, &mut |u, v| {
+        let r = (u * u + v * v).sqrt();
+        let ang = v.atan2(u);
+        let wobble = (ang * 2.0 + 0.6).sin() * 0.09 + (ang * 5.0).sin() * 0.05;
+        let n = fbm(u * 2.2 + 31.0, v * 2.2 + 31.0, 8, 3, 73) * 0.12;
+        // Two runs where the pool found a slope and crept away from itself.
+        let runs = ((ang * 1.0 + 2.3).cos().powi(8) + (ang * 1.0 - 0.9).cos().powi(12)) * 0.22;
+        let edge = 0.62 + wobble + n + runs;
+        let a = ((edge - r) * 8.0).clamp(0.0, 1.0);
+        // The meniscus catches the light where the pool is thin, so the rim
+        // is the brightest part of it and the middle is nearly black.
+        let rim = (1.0 - ((r - edge * 0.94) * 7.0).abs()).clamp(0.0, 1.0);
+        let depth = (r / edge.max(0.01)).clamp(0.0, 1.0);
+        (0.30 + depth * 0.35 + rim * 0.55, a)
+    });
+
     put(Sprite::BlobShadow, &mut |u, v| {
         let r = (u * u + v * v).sqrt();
         let a = (1.0 - r).clamp(0.0, 1.0);

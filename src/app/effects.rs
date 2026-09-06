@@ -15,8 +15,17 @@ use crate::render::{Renderer, SpriteInstance};
 use glam::Vec3;
 
 const MAX_PARTICLES: usize = 3000;
-const MAX_DECALS: usize = 320;
+/// Decals are what is left behind when the shooting stops, and in a game
+/// about clones being shot there is a great deal of it. The pool is large
+/// enough that a whole round's worth of blood accumulates rather than
+/// evaporating behind the player.
+const MAX_DECALS: usize = 900;
 const MAX_TRACERS: usize = 96;
+
+/// How long blood stays. Long enough that a busy corridor is still marked
+/// when the fight comes back through it, which for a round of this length
+/// means effectively for good; the pool size is what actually limits it.
+const BLOOD_LIFE: f32 = 600.0;
 
 #[derive(Clone, Copy)]
 struct Particle {
@@ -42,6 +51,8 @@ struct Particle {
 #[derive(Clone, Copy)]
 struct Decal {
     pos: Vec3,
+    /// Surface the decal is stuck to. Blood on a wall is not blood on a floor.
+    normal: Vec3,
     size: f32,
     rot: f32,
     life: f32,
@@ -63,6 +74,7 @@ struct Tracer {
 pub struct Effects {
     particles: Vec<Particle>,
     decals: Vec<Decal>,
+    next_decal: usize,
     tracers: Vec<Tracer>,
     rng: Rng,
     /// Multiplier from the effects quality setting.
@@ -78,6 +90,7 @@ impl Effects {
         Effects {
             particles: Vec::with_capacity(MAX_PARTICLES),
             decals: Vec::with_capacity(MAX_DECALS),
+            next_decal: 0,
             tracers: Vec::with_capacity(MAX_TRACERS),
             rng: Rng::from_clock(),
             density: 1.0,
@@ -504,19 +517,102 @@ impl Effects {
     }
 
     fn add_decal(&mut self, pos: Vec3, normal: Vec3, size: f32, sprite: Sprite, color: [f32; 4], life: f32) {
-        if self.decals.len() >= MAX_DECALS { self.decals.remove(0); }
-        // Only ground-facing decals are laid flat; wall hits use a billboard,
-        // which at this fidelity is indistinguishable and far simpler.
-        let _ = normal;
-        self.decals.push(Decal {
-            pos,
+        let rot = self.rng.range(0.0, 6.28);
+        self.add_decal_rot(pos, normal, size, rot, sprite, color, life);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_decal_rot(&mut self, pos: Vec3, normal: Vec3, size: f32, rot: f32,
+                     sprite: Sprite, color: [f32; 4], life: f32) {
+        let n = normal.normalize_or(Vec3::Y);
+        let d = Decal {
+            // Lift it clear of the surface it is stuck to, or it fights the
+            // wall for the depth buffer and flickers.
+            pos: pos + n * 0.016,
+            normal: n,
             size,
-            rot: self.rng.range(0.0, 6.28),
+            rot,
             life: 0.0,
             max_life: life,
             sprite,
             color,
-        });
+        };
+        if self.decals.len() < MAX_DECALS {
+            self.decals.push(d);
+        } else {
+            // Rotate through the pool rather than shifting it down, so a busy
+            // corner of the map does not cost an O(n) move per bullet.
+            self.next_decal = (self.next_decal + 1) % MAX_DECALS;
+            self.decals[self.next_decal] = d;
+        }
+    }
+
+    /// Paints blood on whatever the spray from a hit lands on.
+    ///
+    /// A hit used to throw a handful of particles that faded out in half a
+    /// second, and the room was spotless again immediately afterwards. Every
+    /// clone this game is about leaves a mark: rays are cast out from the
+    /// wound - along the shot, back at the shooter, and downward - and
+    /// wherever one meets the world a splatter goes on that surface, at that
+    /// orientation. It accumulates for the whole round.
+    ///
+    /// `gore` scales the whole thing: a graze is a few spots, a kill covers
+    /// the wall behind it.
+    pub fn blood_spray(&mut self, pos: Vec3, dir: Vec3, world: &CollisionWorld, gore: f32) {
+        let dir = dir.normalize_or(Vec3::Y);
+        let rays = ((9.0 + 17.0 * gore) * self.density.max(0.4)) as usize;
+        for i in 0..rays.max(3) {
+            // Most of it carries on past the wound; some sprays back at the
+            // shooter, and some simply falls.
+            let spread = 0.55 + gore * 0.45;
+            let cast = match i % 4 {
+                0 | 1 => dir + self.random_unit() * spread,
+                2 => -dir + self.random_unit() * spread * 0.8,
+                _ => Vec3::NEG_Y + self.random_unit() * 0.55,
+            };
+            let cast = cast.normalize_or(Vec3::NEG_Y);
+            let reach = self.rng.range(1.2, 6.5 + 5.0 * gore);
+            let hit = world.trace_ray(pos, cast, reach, TraceMask::Shot);
+            if !hit.hit { continue; }
+            // Blood thrown along a surface streaks; blood dropped onto one
+            // blots. The angle between the spray and the surface decides.
+            let grazing = 1.0 - cast.dot(-hit.normal).clamp(0.0, 1.0);
+            let sprite = if grazing > 0.55 { Sprite::BloodSpray } else { Sprite::BloodSplat };
+            let size = self.rng.range(0.16, 0.42) * (0.75 + gore * 0.75);
+            let dark = self.rng.range(0.0, 0.12);
+            let alpha = self.rng.range(0.72, 0.95);
+            let color = [0.30 - dark, 0.028, 0.030, alpha];
+            if sprite == Sprite::BloodSpray {
+                // The fan is drawn travelling along the sprite's +u axis, so
+                // it has to be turned to face the way the blood was going,
+                // and pushed on half its length: the wound is at the narrow
+                // end of a spray, not in the middle of it.
+                let along = cast - hit.normal * cast.dot(hit.normal);
+                let rot = decal_angle(hit.normal, along);
+                let centre = hit.point + along.normalize_or_zero() * size * 0.5;
+                self.add_decal_rot(centre, hit.normal, size, rot, sprite, color, BLOOD_LIFE);
+            } else {
+                self.add_decal(hit.point, hit.normal, size, sprite, color, BLOOD_LIFE);
+            }
+        }
+    }
+
+    /// The pool a body leaves behind, plus the spray of the killing hit.
+    pub fn death_gore(&mut self, pos: Vec3, dir: Vec3, world: &CollisionWorld) {
+        self.blood_spray(pos, dir, world, 1.0);
+        // The pool goes on the floor under the body rather than at the wound,
+        // which is chest height.
+        let down = world.trace_ray(pos, Vec3::NEG_Y, 3.2, TraceMask::Shot);
+        if down.hit {
+            let n = self.count(3);
+            for _ in 0..n {
+                let jitter = Vec3::new(self.rng.signed() * 0.45, 0.0, self.rng.signed() * 0.45);
+                let size = self.rng.range(0.45, 0.85);
+                let alpha = self.rng.range(0.80, 0.96);
+                self.add_decal(down.point + jitter, down.normal, size, Sprite::BloodPool,
+                               [0.21, 0.020, 0.024, alpha], BLOOD_LIFE);
+            }
+        }
     }
 
     fn random_unit(&mut self) -> Vec3 {
@@ -684,7 +780,7 @@ impl Effects {
             let fade = if t > 0.75 { 1.0 - (t - 0.75) / 0.25 } else { 1.0 };
             let mut c = d.color;
             c[3] *= fade;
-            r.push_sprite(SpriteInstance::ground(d.pos, d.size, d.rot, d.sprite, c));
+            r.push_sprite(SpriteInstance::decal(d.pos, d.normal, d.size, d.rot, d.sprite, c));
         }
 
         for p in self.particles.iter().chain(self.weather.iter()) {
@@ -717,6 +813,21 @@ impl Effects {
             r.push_sprite(SpriteInstance::stretched(mid, len * 0.5, t.width, rot, Sprite::Tracer, c));
         }
     }
+}
+
+/// The angle to spin a decal by so that its +u axis points along `along` once
+/// it is laid on a surface with the given normal.
+///
+/// This mirrors the tangent basis the sprite shader builds from the normal.
+/// The two have to agree, and this is the only place they meet.
+fn decal_angle(normal: Vec3, along: Vec3) -> f32 {
+    let n = normal.normalize_or(Vec3::Y);
+    let seed = if n.y.abs() > 0.9 { Vec3::X } else { Vec3::Y };
+    let tangent = seed.cross(n).normalize_or(Vec3::X);
+    let bitangent = n.cross(tangent);
+    let d = along - n * along.dot(n);
+    if d.length_squared() < 1e-10 { return 0.0; }
+    d.dot(bitangent).atan2(d.dot(tangent))
 }
 
 /// Debris colour and character per surface.

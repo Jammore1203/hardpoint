@@ -26,6 +26,12 @@ bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
 cpal = "0.15"
 
+[dev-dependencies]
+# Validates shaders.wgsl in a unit test. The renderer compiles the shader at
+# startup, so a mistake in it is a crash on launch rather than a build error;
+# naga is what wgpu uses to compile it, and it needs no GPU to say no.
+naga = { version = "25", features = ["wgsl-in"] }
+
 [profile.dev]
 opt-level = 1
 [profile.dev.package."*"]

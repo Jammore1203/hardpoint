@@ -107,6 +107,26 @@ impl SpriteInstance {
             _pad: [0.0; 3],
         }
     }
+    /// A decal lying on an arbitrary surface.
+    ///
+    /// `normal` is the surface it is stuck to; the quad is built in the plane
+    /// perpendicular to it and spun by `rot` within that plane. The caller is
+    /// responsible for lifting `pos` off the surface far enough not to fight
+    /// it in the depth buffer.
+    ///
+    /// The normal travels in the padding the instance already carried, so an
+    /// oriented decal costs exactly what a flat one did.
+    pub fn decal(pos: Vec3, normal: Vec3, size: f32, rot: f32, sprite: Sprite, color: [f32; 4]) -> SpriteInstance {
+        SpriteInstance {
+            pos: [pos.x, pos.y, pos.z],
+            size: [size, size],
+            rot,
+            uv_rect: sprite.uv(),
+            color,
+            mode: 2.0,
+            _pad: [normal.x, normal.y, normal.z],
+        }
+    }
     pub fn stretched(pos: Vec3, w: f32, h: f32, rot: f32, sprite: Sprite, color: [f32; 4]) -> SpriteInstance {
         SpriteInstance {
             pos: [pos.x, pos.y, pos.z],
@@ -1572,7 +1592,7 @@ fn build_pipelines(
 
     let sprite_vertex_attrs = wgpu::vertex_attr_array![0 => Float32x3, 8 => Float32x3, 9 => Float32x2];
     let sprite_corner_attrs = wgpu::vertex_attr_array![0 => Float32x2];
-    let sprite_instance_attrs = wgpu::vertex_attr_array![1 => Float32x3, 2 => Float32x2, 3 => Float32, 4 => Float32x4, 5 => Float32x4, 6 => Float32];
+    let sprite_instance_attrs = wgpu::vertex_attr_array![1 => Float32x3, 2 => Float32x2, 3 => Float32, 4 => Float32x4, 5 => Float32x4, 6 => Float32, 7 => Float32x3];
     let _ = sprite_vertex_attrs;
     let sprite_layouts = [
         wgpu::VertexBufferLayout {
@@ -1648,5 +1668,31 @@ fn build_pipelines(
         blur_v: make("bloom blur v", &present_layout, "vs_blit", "fs_blur_v", &[], &scene_target, None, None, ms_one),
         blit: make("blit", &present_layout, "vs_blit", "fs_blit", &[], &present_target, None, None, ms_one),
         ui: make("ui", &present_layout, "vs_ui", "fs_ui", &[ui_layout_desc], &present_blend, None, None, ms_one),
+    }
+}
+
+#[cfg(test)]
+mod shader_tests {
+    /// Compiles and validates `shaders.wgsl`.
+    ///
+    /// The renderer builds the shader module when the window opens, so a typo
+    /// in the WGSL is not a compile error - it is a black screen on launch,
+    /// with the message somewhere in the wgpu log. naga is the compiler wgpu
+    /// itself uses, and it needs no adapter to reject a bad shader, so the
+    /// whole thing can be checked here in a couple of milliseconds.
+    #[test]
+    fn the_shader_compiles() {
+        let src = include_str!("shaders.wgsl");
+        let module = match naga::front::wgsl::parse_str(src) {
+            Ok(m) => m,
+            Err(e) => panic!("shaders.wgsl does not parse:\n{}", e.emit_to_string(src)),
+        };
+        let mut validator = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        );
+        if let Err(e) = validator.validate(&module) {
+            panic!("shaders.wgsl does not validate:\n{}", e.emit_to_string(src));
+        }
     }
 }
