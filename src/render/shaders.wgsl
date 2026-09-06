@@ -71,8 +71,22 @@ fn apply_snap(clip: vec4<f32>) -> vec4<f32> {
     if (grid <= 0.0) { return clip; }
     // Quantise in normalised device space, which is what the hardware of the
     // era effectively did by rasterising from fixed-point vertices.
+    // A vertex behind the eye has a negative w. Clamping it to a small
+    // positive epsilon -- which is what this used to do -- sends the
+    // normalised position to somewhere around ten thousand, and quantising
+    // that and multiplying back by the real w produces a position with no
+    // relation to the vertex. On a large face, an apron or the wall a player
+    // is standing against, that is most of the triangles in view, which is
+    // why the period preset drew the world as a couple of flat gradients.
+    //
+    // The hardware this imitates never snapped those vertices either: the
+    // clipper dealt with them before the fixed-point rasteriser saw them.
+    if (clip.w <= 0.0001) { return clip; }
     var c = clip;
-    let ndc = c.xy / max(c.w, 0.0001);
+    let ndc = c.xy / c.w;
+    // Nor is there any point snapping something well off the screen, where
+    // the quantisation is invisible and the precision is worst.
+    if (abs(ndc.x) > 4.0 || abs(ndc.y) > 4.0) { return clip; }
     let snapped = floor(ndc * grid + 0.5) / grid;
     c = vec4<f32>(snapped * c.w, c.z, c.w);
     return c;
