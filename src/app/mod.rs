@@ -1002,8 +1002,29 @@ impl App {
         // wherever the scripted player has walked into a wall. Looking at the
         // lighting and the materials means being able to point the camera at
         // them, and the autoplay bot spends most of a match facing masonry.
-        if std::env::var_os("HARDPOINT_TOUR").is_some() {
-            let (pos, yaw, pitch) = tour_camera(map, now);
+        if let Ok(mode) = std::env::var("HARDPOINT_TOUR") {
+            // "follow" orbits whoever is nearest, for looking at the character
+            // models; anything else walks the spawn points.
+            let follow = if mode == "follow" {
+                let eye = client.local.eye();
+                let mut best: Option<(f32, Vec3)> = None;
+                for (i, p) in client.players.iter().enumerate() {
+                    if i as u8 == client.slot || !p.present { continue; }
+                    if p.snap.flags.contains(crate::game::types::PFlags::DEAD) { continue; }
+                    let d = (p.render_pos - eye).length();
+                    if best.is_none_or(|(bd, _)| d < bd) { best = Some((d, p.render_pos)); }
+                }
+                best.map(|(_, at)| {
+                    let a = now as f32 * 0.35;
+                    let target = at + Vec3::Y * 1.05;
+                    let off = Vec3::new(a.cos() * 2.4, 0.55, a.sin() * 2.4);
+                    let d = target - (target + off);
+                    (target + off, (-d.x).atan2(-d.z), (d.y / d.length().max(1e-3)).asin())
+                })
+            } else {
+                None
+            };
+            let (pos, yaw, pitch) = follow.unwrap_or_else(|| tour_camera(map, now));
             self.camera.position = pos;
             self.camera.yaw = yaw;
             self.camera.pitch = pitch;

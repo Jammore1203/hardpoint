@@ -1372,11 +1372,13 @@ pub fn look_material(look: PartLook, team_index: usize) -> Mat {
         PartLook::Fatigues => match team_index {
             1 => Mat::Camo,
             2 => Mat::CamoDesert,
-            _ => Mat::CamoWinter,
+            // Free-for-all has no teams, and winter camouflage on a desert
+            // airfield made everyone a white silhouette against tan ground.
+            _ => Mat::Camo,
         },
         PartLook::Skin => Mat::Fabric,
         PartLook::Webbing => Mat::Canvas,
-        PartLook::Hard => Mat::MetalPanel,
+        PartLook::Hard => Mat::GunPolymer,
         PartLook::Boots => Mat::Rubber,
     }
 }

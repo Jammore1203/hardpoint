@@ -217,10 +217,14 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
             // Fatigues take the team colour; kit stays neutral so the
             // silhouette still reads as a soldier rather than a colour swatch.
             let color = match look {
-                PartLook::Skin => [0.72, 0.60, 0.50, 1.0],
-                PartLook::Hard => [0.66, 0.67, 0.68, 1.0],
-                PartLook::Webbing => [0.56, 0.54, 0.47, 1.0],
-                PartLook::Boots => [0.46, 0.44, 0.42, 1.0],
+                PartLook::Skin => [0.68, 0.56, 0.46, 1.0],
+                // Helmet and plate carrier: these were lighter than the
+                // fatigues under them, which put the brightest value in the
+                // silhouette on the head and made every soldier read as a
+                // pale blob with a dark stripe.
+                PartLook::Hard => [0.48, 0.49, 0.51, 1.0],
+                PartLook::Webbing => [0.44, 0.42, 0.36, 1.0],
+                PartLook::Boots => [0.38, 0.37, 0.35, 1.0],
                 PartLook::Fatigues => tint,
             };
             r.push_part(meshgen::part_shape(part), PartInstance::from_matrix(
@@ -252,11 +256,18 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
     let _ = time;
 }
 
+/// A gentle grade on each team's camouflage, never a colour of its own.
+///
+/// These used to be a warm and a cool multiplier strong enough to overpower
+/// the pattern underneath: desert camo times a blue tint came out neutral
+/// grey, which is how both teams ended up as pale figures that could only be
+/// told apart by the name over their head. The pattern carries the team now
+/// -- woodland against desert -- and the tint only leans it.
 fn team_tint(team: Team) -> [f32; 4] {
     match team {
-        Team::Phantom => [1.10, 0.86, 0.74, 1.0],
-        Team::Vanguard => [0.78, 0.88, 1.10, 1.0],
-        _ => [0.95, 0.95, 0.92, 1.0],
+        Team::Phantom => [0.80, 0.88, 0.78, 1.0],
+        Team::Vanguard => [0.98, 0.90, 0.76, 1.0],
+        _ => [0.80, 0.80, 0.78, 1.0],
     }
 }
 
