@@ -672,6 +672,102 @@ fn event_name(e: &crate::game::events::GameEvent) -> &'static str {
 /// that papers over geometry a human simply gets wedged in. Any point where a
 /// player holding forward along a route the navigation graph offers stops
 /// moving is a place someone will report as "I can't get up these stairs".
+/// Walks a player up every rising link in the navigation graph.
+///
+/// `--stairs` walks long random routes, which measures steering as much as
+/// geometry: a wedge there might be a corner the straight-line walker clipped
+/// on its way to a waypoint twenty metres off. This measures one thing only -
+/// given a link the graph says rises, can a player standing at the bottom of
+/// it get to the top by holding forward - which is the question "can I climb
+/// these stairs" actually asks.
+pub fn climb_test(map_name: &str) -> i32 {
+    use crate::game::movement::{self, MoveMods, MoveState};
+    use crate::game::types::{Buttons, InputCmd, Stance};
+
+    let maps: Vec<MapId> = match map_name {
+        "ALL" | "all" => crate::maps::ALL_MAPS.to_vec(),
+        other => match ALL_MAPS.iter().find(|m| m.name().eq_ignore_ascii_case(other)) {
+            Some(m) => vec![*m],
+            None => { eprintln!("unknown map '{}'", other); return 2; }
+        },
+    };
+
+    let mods = MoveMods {
+        weapon_scale: 1.0, ads_scale: 1.0, perk_scale: 1.0,
+        block_sprint: false, want_ads: false, ads_time: 0.25,
+    };
+    let dt = 1.0 / 60.0;
+    let mut total_failed = 0usize;
+    let mut total_climbs = 0usize;
+
+    println!("{:<12} {:>8} {:>8} {:>9}  {}", "MAP", "CLIMBS", "FAILED", "WORST", "WORST AT");
+    for id in maps {
+        let map = crate::maps::library::build(id);
+        let mut failed: Vec<(Vec3, Vec3, f32)> = Vec::new();
+        let mut climbs = 0usize;
+
+        for i in 0..map.nav.nodes.len() as u32 {
+            let from = map.nav.node(i).pos;
+            for link in map.nav.links_of(i) {
+                let to = map.nav.node(link.to).pos;
+                let rise = to.y - from.y;
+                // Only links the graph claims you can walk up.
+                if rise < 0.30 { continue; }
+                climbs += 1;
+
+                let mut st = MoveState::default();
+                st.pos = from + Vec3::Y * 0.05;
+                st.height = Stance::Stand.height();
+                let to_flat = Vec3::new(to.x - from.x, 0.0, to.z - from.z);
+                let yaw = crate::math::angles_from_dir(to_flat.normalize_or_zero()).0;
+
+                // Three seconds is many times what a metre of stair needs.
+                let mut best = f32::MAX;
+                for _ in 0..180 {
+                    let cmd = InputCmd {
+                        seq: 0, dt_ms: 16, move_f: 127, move_r: 0,
+                        yaw, pitch: 0.0, buttons: Buttons::empty(), weapon: 0xFF,
+                    };
+                    movement::move_player(&mut st, &cmd, &mods, &map.collision, dt);
+                    let gap = (st.pos - to).length();
+                    best = best.min(gap);
+                    if gap < 0.6 { break; }
+                }
+                if best >= 0.6 && failed.len() < 6000 {
+                    failed.push((from, to, best));
+                }
+            }
+        }
+
+        failed.sort_by(|a, b| b.2.total_cmp(&a.2));
+        let worst = failed.first();
+        println!(
+            "{:<12} {:>8} {:>8} {:>8.2}m  {}",
+            id.name(), climbs, failed.len(),
+            worst.map(|f| f.2).unwrap_or(0.0),
+            worst.map(|f| format!("({:.1},{:.1},{:.1}) -> ({:.1},{:.1},{:.1})",
+                                  f.0.x, f.0.y, f.0.z, f.1.x, f.1.y, f.1.z))
+                 .unwrap_or_else(|| "-".into()),
+        );
+        if std::env::var_os("HARDPOINT_CLIMBS").is_some() {
+            for (a, b, gap) in failed.iter().take(12) {
+                println!("    {:.2}m short: ({:.1},{:.1},{:.1}) -> ({:.1},{:.1},{:.1})  rise {:.2}",
+                         gap, a.x, a.y, a.z, b.x, b.y, b.z, b.y - a.y);
+            }
+        }
+        total_failed += failed.len();
+        total_climbs += climbs;
+    }
+
+    if total_failed == 0 {
+        println!("\nevery rising link is climbable by a player holding forward ({} tested)", total_climbs);
+        0
+    } else {
+        println!("\n{} of {} rising links are not climbable", total_failed, total_climbs);
+        1
+    }
+}
+
 pub fn stair_test(map_name: &str) -> i32 {
     use crate::core::Rng;
     use crate::game::movement::{self, MoveMods, MoveState};

@@ -463,10 +463,19 @@ fn try_step_up(st: &mut MoveState, world: &CollisionWorld, remaining: &mut Vec3)
     }
     st.pos += gained;
 
-    // 3. Settle back down onto whatever is under us.
+    // 3. Settle back down onto whatever is under us, leaving the same two
+    // millimetres of clearance every other contact in this file leaves.
+    //
+    // Without it the mover comes to rest exactly flush on the tread it just
+    // climbed, and the full-width validation below - which is a strict overlap
+    // test - decides the destination is blocked and refuses the step. Every
+    // frame, on every staircase in the game: the player walks into the riser,
+    // the step is computed correctly, and then thrown away for want of a
+    // rounding margin.
     let drop = lift + 0.02;
     let down = world.trace_box(&slim(st), Vec3::NEG_Y * drop, TraceMask::Solid);
     st.pos.y -= drop * down.fraction;
+    if down.hit { st.pos.y += 0.002; }
 
     // Refuse the step if we ended up on a surface too steep to stand on, or
     // hanging in the air when we started grounded.
