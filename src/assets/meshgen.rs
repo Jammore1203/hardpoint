@@ -672,6 +672,11 @@ fn bake_light(
     // One shadow ray each, and only for the handful of lights whose radius
     // actually reaches this vertex, so an indoor map pays for its windows and
     // an open desert pays for nothing.
+    // At the flattest bake there are no shadow rays at all, and an unshadowed
+    // point light is worse than no point light: a window would light the room
+    // and the far side of its own wall equally. The Low preset has no sun
+    // shadows either, so it loses nothing it was showing.
+    let lights: &[BakedLight] = if quality == BakeQuality::Flat { &[] } else { lights };
     for l in lights {
         let d = l.pos - p;
         let dist_sq = d.length_squared();
@@ -686,7 +691,7 @@ fn bake_light(
         let falloff = 1.0 - dist / l.radius;
         let att = falloff * falloff * ndl;
         if att < 0.002 { continue; }
-        if quality != BakeQuality::Flat && !no_shadow {
+        if !no_shadow {
             let origin = p + n * 0.06;
             if map.collision.trace_ray(origin, dir, dist - 0.12, TraceMask::Shot).hit {
                 continue;

@@ -227,8 +227,21 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
                 PartLook::Boots => [0.38, 0.37, 0.35, 1.0],
                 PartLook::Fatigues => tint,
             };
+            // Texture scale. Every part was drawn with the material tiled
+            // exactly once across it, so a camouflage pattern designed to
+            // repeat every couple of metres was stretched over a thirty
+            // centimetre sleeve: one blob of one colour, and every soldier
+            // came out in flat tan. Tiling a few times per limb is what makes
+            // the pattern a pattern.
+            let uv = match look {
+                PartLook::Fatigues => 3.0,
+                PartLook::Webbing => 2.4,
+                PartLook::Boots => 2.0,
+                PartLook::Hard => 1.6,
+                PartLook::Skin => 1.0,
+            };
             r.push_part(meshgen::part_shape(part), PartInstance::from_matrix(
-                pose.parts[part as usize], color, mat.layer(), [1.0, 0.0, 0.0]));
+                pose.parts[part as usize], color, mat.layer(), [uv, 0.0, 0.0]));
         }
 
         // The weapon they are actually carrying, built from the same box list
