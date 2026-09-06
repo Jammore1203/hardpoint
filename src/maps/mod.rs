@@ -147,6 +147,8 @@ pub struct Env {
     pub track: MusicTrack,
     /// Optional light haze of falling particles (snow, ash, rain).
     pub weather: Weather,
+    /// How much of the sky is covered by cloud, 0 clear to 1 overcast.
+    pub cloud_cover: f32,
 }
 
 impl Default for Env {
@@ -166,6 +168,7 @@ impl Default for Env {
             ambience: Ambience::Wind,
             track: MusicTrack::Patrol,
             weather: Weather::None,
+            cloud_cover: 0.45,
         }
     }
 }

@@ -42,6 +42,7 @@ struct Globals {
     time: [f32; 4],
     retro: [f32; 4],
     grade: [f32; 4],
+    sun: [f32; 4],
 }
 
 /// One billboarded or ground-aligned quad.
@@ -724,6 +725,7 @@ impl Renderer {
                 if self.settings.post_processing { self.settings.scanlines } else { 0.0 },
                 if self.settings.post_processing { self.settings.vignette } else { 0.0 },
             ],
+            sun: [-env.sun_dir.x, -env.sun_dir.y, -env.sun_dir.z, env.cloud_cover],
             grade: [
                 self.settings.detail,
                 crate::assets::texgen::DETAIL_LAYER as f32,
@@ -772,11 +774,6 @@ impl Renderer {
             rp.set_bind_group(0, &self.globals_bg, &[]);
             rp.set_bind_group(1, &self.world_bg, &[]);
             rp.set_bind_group(2, &self.atlas_bg, &[]);
-
-            // Sky.
-            rp.set_pipeline(&self.pipe_sky);
-            rp.draw(0..3, 0..1);
-            self.stats.draw_calls += 1;
 
             // World, cluster by cluster.
             if let Some(map) = &self.map {
@@ -827,6 +824,14 @@ impl Renderer {
                     self.stats.triangles += (self.shape_indices[i] / 3) * list.len() as u32;
                 }
             }
+
+            // Sky last among the opaque passes. Under reversed depth the
+            // cleared buffer is the far plane, so this only shades pixels the
+            // world did not cover - which on an enclosed map is almost none of
+            // them, and the sky shader is the most expensive one here.
+            rp.set_pipeline(&self.pipe_sky);
+            rp.draw(0..3, 0..1);
+            self.stats.draw_calls += 1;
 
             // Particles and decals.
             if !self.sprites.is_empty() {
@@ -1415,7 +1420,7 @@ fn build_pipelines(
 
     Pipelines {
         sky: make("sky", &scene_layout, "vs_sky", "fs_sky", &[], &scene_target,
-                  Some(depth_write(false, wgpu::CompareFunction::Always)), None, ms),
+                  Some(depth_write(false, wgpu::CompareFunction::GreaterEqual)), None, ms),
         world: make("world", &scene_layout, "vs_world", "fs_world", &[world_layout_desc.clone()], &scene_target,
                     Some(depth_write(true, wgpu::CompareFunction::Greater)), Some(wgpu::Face::Back), ms),
         world_cutout: make("world cutout", &scene_layout, "vs_world", "fs_world_cutout", &[world_layout_desc], &scene_target,

@@ -645,8 +645,16 @@ impl App {
                 // a close-range tool and testing with it measures nothing.
                 self.input.set_mouse(winit::event::MouseButton::Right, engaged || sights_only);
                 if sights_only {
+                    // Stand still as well, or the capture ends up facing
+                    // whatever wall the script walked into.
+                    self.input.set_key(KeyCode::KeyW, false);
+                    self.input.set_key(KeyCode::KeyD, false);
+                    self.input.set_key(KeyCode::Space, false);
                     self.input.set_mouse(winit::event::MouseButton::Left, false);
-                    self.pitch = 0.0;
+                    self.pitch = std::env::var("HARDPOINT_PITCH").ok()
+                        .and_then(|v| v.parse::<f32>().ok())
+                        .unwrap_or(0.0)
+                        .to_radians();
                 }
                 if engaged {
                     self.input.set_key(winit::keyboard::KeyCode::KeyW, false);

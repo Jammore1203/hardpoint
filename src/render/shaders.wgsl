@@ -23,7 +23,8 @@ struct Globals {
     screen: vec4<f32>,         // w, h, 1/w, 1/h
     time: vec4<f32>,           // seconds, dt, flash, damage
     retro: vec4<f32>,          // snap grid, affine, scanline, vignette
-    grade: vec4<f32>,          // warm, cool, exposure, saturation
+    grade: vec4<f32>,          // detail strength, detail layer, exposure, saturation
+    sun: vec4<f32>,            // direction toward the sun (xyz), cloud cover (w)
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -74,6 +75,12 @@ fn fog_amount(world_pos: vec3<f32>) -> f32 {
     return t * t;
 }
 
+// The sun's own colour is not in the uniform block; the sky's top colour is a
+// good enough stand-in, warmed a little.
+fn G_sun_color_or_white() -> vec3<f32> {
+    return mix(vec3<f32>(1.0, 0.97, 0.90), vec3<f32>(1.0), 0.35);
+}
+
 fn grade(c: vec3<f32>) -> vec3<f32> {
     // A warm/cool split-tone plus a gentle contrast curve: the whole colour
     // treatment of the era in three instructions.
@@ -95,13 +102,36 @@ struct SkyOut {
 
 @vertex
 fn vs_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
-    // Fullscreen triangle; no vertex buffer needed.
+    // Fullscreen triangle; no vertex buffer needed. Depth zero is the far
+    // plane under the reversed-depth projection, so the sky is rejected
+    // wherever the world already drew and only shades pixels that are
+    // genuinely sky. It is drawn after the world for that reason.
     var out: SkyOut;
     let x = f32((vi << 1u) & 2u) * 2.0 - 1.0;
     let y = f32(vi & 2u) * 2.0 - 1.0;
-    out.clip = vec4<f32>(x, y, 1.0, 1.0);
+    out.clip = vec4<f32>(x, y, 0.0, 1.0);
     out.uv = vec2<f32>(x, y);
     return out;
+}
+
+// Value noise on a hashed lattice. The sky is the one place in this renderer
+// that generates a pattern at run time rather than baking it, because a cloud
+// layer has to move.
+fn sky_hash(p: vec2<f32>) -> f32 {
+    let q = fract(p * vec2<f32>(0.3183099, 0.3678794));
+    let r = q + dot(q, q + 33.33);
+    return fract((r.x + r.y) * r.x * r.y);
+}
+
+fn sky_noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let a = sky_hash(i);
+    let b = sky_hash(i + vec2<f32>(1.0, 0.0));
+    let c = sky_hash(i + vec2<f32>(0.0, 1.0));
+    let d = sky_hash(i + vec2<f32>(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
 @fragment
@@ -116,11 +146,53 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
         + G.camera_up.xyz * (in.uv.y * th));
 
     let up_amt = clamp(dir.y, 0.0, 1.0);
-    let sky = mix(G.sky_horizon.rgb, G.sky_top.rgb, pow(up_amt, 0.55));
+    var c = mix(G.sky_horizon.rgb, G.sky_top.rgb, pow(up_amt, 0.55));
+
+    let sun_dir = G.sun.xyz;
+    let sun_dot = clamp(dot(dir, sun_dir), 0.0, 1.0);
+
+    // Sun: a small hard disc inside a wide halo. The halo does most of the
+    // work - it is what tells you which way the light is coming from when the
+    // disc itself is behind you.
+    let halo = pow(sun_dot, 40.0) * 0.55 + pow(sun_dot, 6.0) * 0.16;
+    let disc = smoothstep(0.9975, 0.9990, sun_dot);
+    c += G_sun_color_or_white() * (halo + disc * 2.4);
+
+    // Clouds, on a plane above the world.
+    //
+    // Projected along the view ray rather than drawn on the sky dome, so they
+    // flatten and crowd toward the horizon the way real cloud cover does, and
+    // the player can tell they are a layer at a height rather than a texture
+    // on a hemisphere.
+    let cover = G.sun.w;
+    if (cover > 0.001 && dir.y > 0.015) {
+        let t = 260.0 / dir.y;
+        var p = (G.camera_pos.xz + dir.xz * t) * 0.0060;
+        p += vec2<f32>(G.time.x * 0.012, G.time.x * 0.006);
+
+        // Three octaves. A fourth is not visible at this scale and the sky is
+        // a lot of pixels.
+        var n = sky_noise(p) * 0.55;
+        n += sky_noise(p * 2.17 + 3.1) * 0.28;
+        n += sky_noise(p * 4.31 + 7.7) * 0.17;
+
+        // Thin the cover toward the horizon, where the projection stretches
+        // the noise into streaks that read as smearing rather than as cloud.
+        let band = smoothstep(0.015, 0.30, dir.y);
+        let lo = mix(0.66, 0.24, cover);
+        let amount = smoothstep(lo, lo + 0.20, n) * band;
+
+        // Lit on the sun's side, grey away from it: two tones and a threshold,
+        // which is exactly how this looked in 2002 and still reads as sky.
+        let lit = mix(vec3<f32>(0.78, 0.78, 0.80), vec3<f32>(1.06, 1.03, 0.96),
+                      pow(sun_dot, 2.0));
+        c = mix(c, lit * mix(0.72, 1.0, up_amt), amount * 0.92);
+    }
+
     // Fully fogged geometry is fog_color, so the sky must be exactly that at
     // the horizon or the world ends on a visible seam.
     let haze = 1.0 - smoothstep(0.0, 0.10, dir.y);
-    var c = mix(sky, G.fog_color.rgb, haze);
+    c = mix(c, G.fog_color.rgb, haze);
     // A few gentle bands, which reads as haze rather than a flat wash.
     c += sin(up_amt * 26.0) * 0.006;
     return vec4<f32>(grade(c), 1.0);

@@ -55,6 +55,7 @@ fn env_desert() -> Env {
         ambience: Ambience::Wind,
         track: MusicTrack::Patrol,
         weather: Weather::Dust,
+        cloud_cover: 0.12,
     }
 }
 
@@ -74,6 +75,7 @@ fn env_industrial() -> Env {
         ambience: Ambience::Industrial,
         track: MusicTrack::Assault,
         weather: Weather::None,
+        cloud_cover: 0.62,
     }
 }
 
@@ -93,6 +95,7 @@ fn env_village() -> Env {
         ambience: Ambience::Urban,
         track: MusicTrack::Tension,
         weather: Weather::None,
+        cloud_cover: 0.40,
     }
 }
 
@@ -112,6 +115,7 @@ fn env_jungle() -> Env {
         ambience: Ambience::Jungle,
         track: MusicTrack::Tension,
         weather: Weather::Rain,
+        cloud_cover: 0.55,
     }
 }
 
@@ -131,6 +135,7 @@ fn env_arctic() -> Env {
         ambience: Ambience::Blizzard,
         track: MusicTrack::Patrol,
         weather: Weather::Snow,
+        cloud_cover: 0.80,
     }
 }
 
@@ -150,6 +155,7 @@ fn env_urban() -> Env {
         ambience: Ambience::Urban,
         track: MusicTrack::Assault,
         weather: Weather::None,
+        cloud_cover: 0.48,
     }
 }
 
@@ -169,6 +175,7 @@ fn env_shipyard() -> Env {
         ambience: Ambience::Coastal,
         track: MusicTrack::Patrol,
         weather: Weather::None,
+        cloud_cover: 0.52,
     }
 }
 
@@ -188,6 +195,7 @@ fn env_foundry() -> Env {
         ambience: Ambience::Industrial,
         track: MusicTrack::Assault,
         weather: Weather::Ash,
+        cloud_cover: 0.70,
     }
 }
 
@@ -207,6 +215,7 @@ fn env_coastal() -> Env {
         ambience: Ambience::Coastal,
         track: MusicTrack::Tension,
         weather: Weather::None,
+        cloud_cover: 0.35,
     }
 }
 
@@ -226,6 +235,7 @@ fn env_bunker() -> Env {
         ambience: Ambience::Interior,
         track: MusicTrack::Tension,
         weather: Weather::None,
+        cloud_cover: 0.30,
     }
 }
 
@@ -245,6 +255,7 @@ fn env_railyard() -> Env {
         ambience: Ambience::RailYard,
         track: MusicTrack::Patrol,
         weather: Weather::None,
+        cloud_cover: 0.58,
     }
 }
 
@@ -264,6 +275,7 @@ fn env_overpass() -> Env {
         ambience: Ambience::Urban,
         track: MusicTrack::Assault,
         weather: Weather::Dust,
+        cloud_cover: 0.66,
     }
 }
 
@@ -510,9 +522,11 @@ fn ironveil(b: &mut MapBuilder) {
     }
 
     // --- Spawns.
-    b.spawn_cluster(-43.0, 0.05, -20.0, 90.0, Team::Phantom, 8, 5.0, true);
+    // Clear of the corner outbuildings: a spawn inside a roofed room with two
+    // doors is a spawn you have to leave before the round starts.
+    b.spawn_cluster(-43.0, 0.05, -11.0, 90.0, Team::Phantom, 8, 5.0, true);
     b.spawn_cluster(-43.0, 0.05, 24.0, 90.0, Team::Phantom, 6, 4.5, false);
-    b.spawn_cluster(43.0, 0.05, 20.0, -90.0, Team::Vanguard, 8, 5.0, true);
+    b.spawn_cluster(43.0, 0.05, 11.0, -90.0, Team::Vanguard, 8, 5.0, true);
     b.spawn_cluster(43.0, 0.05, -24.0, -90.0, Team::Vanguard, 6, 4.5, false);
     b.spawn_cluster(0.0, 0.05, -20.0, 180.0, Team::None, 5, 6.0, false);
     b.spawn_cluster(0.0, 0.05, 22.0, 0.0, Team::None, 5, 6.0, false);
