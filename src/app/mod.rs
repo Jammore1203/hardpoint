@@ -200,6 +200,12 @@ pub struct App {
     shake: f32,
     shake_seed: f32,
     damage_flash: f32,
+    /// How long the reinstance key has been held, in seconds.
+    ///
+    /// Asking to be reprinted has to be held rather than pressed: it is a
+    /// death, and a death one key away from the reload key is a death that
+    /// happens by accident.
+    pub(super) reinstance_hold: f32,
     flash_blind: f32,
     mouse_captured: bool,
     /// Microphone, opened lazily: most players never press the key.
@@ -335,6 +341,7 @@ impl App {
             shake: 0.0,
             shake_seed: 0.0,
             damage_flash: 0.0,
+            reinstance_hold: 0.0,
             flash_blind: 0.0,
             mouse_captured: false,
             mic: crate::audio::voice::Microphone::disabled(),

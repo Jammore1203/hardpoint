@@ -200,6 +200,8 @@ pub struct HudFrame<'a> {
     pub voices: &'a [(String, f32)],
     pub transmitting: bool,
     pub respawn_in: f32,
+    /// How far through the hold to be reprinted the player is, 0..1.
+    pub reinstance: f32,
     pub health: f32,
     pub armor: f32,
     pub ammo: u16,
@@ -238,6 +240,7 @@ pub fn draw(p: &mut Painter, f: &HudFrame) {
     draw_bomb_progress(p, f, w, h);
     draw_visor(p, f, w, h);
     draw_instance_block(p, f, h, s);
+    draw_reinstance(p, f, w, h);
 
     if !f.alive {
         draw_death_overlay(p, f, w, h);
@@ -449,6 +452,9 @@ fn draw_killfeed(p: &mut Painter, f: &HudFrame, w: f32) {
             DeathCause::Fall => "v",
             DeathCause::World => "x",
             DeathCause::Bomb => "#",
+            // Reprinted on request. Not a kill, so it gets its own mark
+            // rather than borrowing the one for walking into a hazard.
+            DeathCause::Reinstance => "<>",
             DeathCause::Bullet => "-",
         };
         let victim_c = theme::with_alpha(theme::team_color(k.victim_team), alpha);
@@ -575,6 +581,26 @@ fn draw_death_overlay(p: &mut Painter, f: &HudFrame, w: f32, h: f32) {
             "PRESS SPACE TO DEPLOY", Align::Center,
         );
     }
+}
+
+/// The hold to be reprinted.
+///
+/// Held rather than pressed, because it is a death and a death one key away
+/// from the reload key is a death that happens by accident. The bar is the
+/// only thing on screen that says what the key does, so it appears the
+/// instant it is touched.
+fn draw_reinstance(p: &mut Painter, f: &HudFrame, w: f32, h: f32) {
+    if f.reinstance <= 0.001 { return; }
+    let t = f.reinstance.clamp(0.0, 1.0);
+    let bw = 300.0;
+    let x = w * 0.5 - bw * 0.5;
+    let y = h * 0.62;
+    // The whole screen dims as the hold completes, so the moment of it is
+    // felt rather than read.
+    p.rect(0.0, 0.0, w, h, [0.0, 0.0, 0.0, t * t * 0.35]);
+    p.text_shadow_aligned(w * 0.5, y - 26.0, theme::SMALL, theme::TEXT_DIM,
+                          "TERMINATING INSTANCE", Align::Center);
+    p.bar(x, y, bw, 10.0, t, theme::BAD, theme::PANEL_DEEP);
 }
 
 /// Blood on the inside of the visor.

@@ -10,6 +10,10 @@ use crate::modes::Phase;
 use crate::ui::widgets::UiSound;
 use glam::Vec3;
 
+/// How long the reinstance key must be held. Long enough to be a decision,
+/// short enough to be a move.
+pub const REINSTANCE_HOLD: f32 = 0.85;
+
 impl App {
     /// One frame of play.
     pub(super) fn update_game(&mut self, dt: f32, now: f64) {
@@ -342,11 +346,24 @@ impl App {
         }
 
         // Asking to respawn while dead.
+        let b = self.settings.bindings.clone();
         if !alive {
-            let b = self.settings.bindings.clone();
+            self.reinstance_hold = 0.0;
             if self.input.pressed(&b, Action::Respawn) || self.input.pressed(&b, Action::Fire) {
                 if let Some(c) = &mut self.client { c.request_respawn(); }
             }
+        } else if self.input.held(&b, Action::Reinstance) {
+            // Asking to be reprinted while still standing. Everybody here is
+            // an instance off the same line and dying is a stock movement, so
+            // the way out of a corner you have walked into is to stop being
+            // the copy that is in it. It costs a death, like any other.
+            self.reinstance_hold += dt;
+            if self.reinstance_hold >= REINSTANCE_HOLD {
+                self.reinstance_hold = 0.0;
+                if let Some(c) = &mut self.client { c.request_respawn(); }
+            }
+        } else {
+            self.reinstance_hold = 0.0;
         }
     }
 

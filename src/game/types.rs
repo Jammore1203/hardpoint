@@ -189,6 +189,9 @@ pub enum DeathCause {
     Fall = 5,
     World = 6,
     Bomb = 7,
+    /// The player asked to be reprinted. Dying on purpose is a movement
+    /// option in a game where everybody is a copy.
+    Reinstance = 8,
 }
 
 impl DeathCause {
@@ -196,7 +199,8 @@ impl DeathCause {
         match v {
             1 => DeathCause::Headshot, 2 => DeathCause::Explosion, 3 => DeathCause::Melee,
             4 => DeathCause::Fire, 5 => DeathCause::Fall, 6 => DeathCause::World,
-            7 => DeathCause::Bomb, _ => DeathCause::Bullet,
+            7 => DeathCause::Bomb, 8 => DeathCause::Reinstance,
+            _ => DeathCause::Bullet,
         }
     }
 }

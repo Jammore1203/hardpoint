@@ -1029,6 +1029,30 @@ fn belvoir(b: &mut MapBuilder) {
     b.skirt(0x1A02, 34, 3.2, Mat::StoneWall);
     b.backdrop(0x1A02, 40.0, 60, 7.0, 18.0, &[Mat::BrickPale, Mat::Facade, Mat::Plaster, Mat::RoofTile]);
 
+    // --- Three doors, and none of them comes back.
+    //
+    // The pairs on the other maps are honest about being pairs: go through
+    // one and you can turn round and go back. These three are a ring. West
+    // leads to north, north leads to east, east leads to west, and it does
+    // not matter which side of a door you walk into - both faces of the north
+    // door open onto the east one. There is no way to retrace a step through
+    // any of them, so a player who takes one to escape a fight cannot use the
+    // same trick to get back, and a player chasing them through it arrives
+    // somewhere else again.
+    //
+    // Three streets in a village that is otherwise the most ordinary map
+    // here, which is the reason it is this one: the shape of Belvoir is
+    // legible everywhere except at these three points.
+    let ring = [
+        // (gate, where it leads)
+        ((-30.0f32, 0.0f32), (0.0f32, 30.0f32)),
+        ((0.0, 30.0), (30.0, -30.0)),
+        ((30.0, -30.0), (-30.0, 0.0)),
+    ];
+    for (i, ((gx, gz), (tx, tz))) in ring.into_iter().enumerate() {
+        b.warp_gate(gx, 0.0, gz, 3.2, 2.8, true, Vec3::new(tx, 0.0, tz), Vec3::Z, 4 + i as u8);
+    }
+
 }
 
 // ================================================================= GREENLINE

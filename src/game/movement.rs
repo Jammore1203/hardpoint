@@ -966,6 +966,31 @@ mod warp_tests {
                 "should have come out at the south gate, ended at {south:?}");
     }
 
+    /// Belvoir's three doors are a ring: no door leads back to the one you
+    /// came from, whichever side of it you walk into.
+    #[test]
+    fn the_ring_of_doors_cannot_be_retraced() {
+        let map = crate::maps::library::build(MapId::Belvoir);
+        let warps = &map.collision.warps;
+        assert_eq!(warps.len(), 3, "Belvoir should have three doors");
+
+        for w in warps {
+            for vel in [Vec3::Z, Vec3::NEG_Z] {
+                let landing = w.landing(vel);
+                // Walking on through from where you land must not put you
+                // back at the door you just used - that is what makes it a
+                // ring rather than three pairs.
+                let back = map.collision.warp_at(landing + vel.normalize() * 2.0);
+                if let Some(next) = back {
+                    assert_ne!(next.exit, w.exit,
+                               "a door leads straight back to where it came from");
+                }
+                assert!(map.collision.warp_at(landing).is_none(),
+                        "landing at {landing:?} is inside a mouth");
+            }
+        }
+    }
+
     /// A player standing in an updraft leaves the floor, and one in a
     /// low-gravity room jumps higher than one outside it.
     #[test]

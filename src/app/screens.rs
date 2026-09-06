@@ -1323,6 +1323,7 @@ fn draw_hud(app: &mut App, now: f64) {
         voices: &voices,
         transmitting: app.voice_talking,
         respawn_in: respawn,
+        reinstance: app.reinstance_hold / crate::app::game::REINSTANCE_HOLD,
         health: client.local.health,
         armor: client.local.armor,
         ammo: client.local.weapon().ammo,

@@ -38,16 +38,18 @@ pub enum Action {
     Pause,
     VoiceChat,
     Respawn,
+    /// Ask to be reprinted while still alive.
+    Reinstance,
     ToggleStats,
 }
 
-pub const ALL_ACTIONS: [Action; 27] = {
+pub const ALL_ACTIONS: [Action; 28] = {
     use Action::*;
     [
         MoveForward, MoveBack, MoveLeft, MoveRight, Jump, Crouch, Prone, Sprint,
         Fire, Aim, Reload, Melee, Lethal, Tactical, Use,
         NextWeapon, PrevWeapon, Weapon1, Weapon2, Weapon3,
-        Scoreboard, Chat, TeamChat, Pause, Respawn, ToggleStats, VoiceChat,
+        Scoreboard, Chat, TeamChat, Pause, Respawn, Reinstance, ToggleStats, VoiceChat,
     ]
 };
 
@@ -81,6 +83,7 @@ impl Action {
             Pause => "PAUSE / BACK",
             VoiceChat => "VOICE (HOLD)",
             Respawn => "RESPAWN",
+            Reinstance => "REINSTANCE (HOLD)",
             ToggleStats => "PERFORMANCE OVERLAY",
         }
     }
@@ -115,6 +118,7 @@ impl Action {
             Pause => "bind.pause",
             VoiceChat => "bind.voice",
             Respawn => "bind.respawn",
+            Reinstance => "bind.reinstance",
             ToggleStats => "bind.stats",
         }
     }
@@ -198,6 +202,7 @@ impl Default for Bindings {
         map.insert(Pause, Binding::Key(K::Escape));
         map.insert(VoiceChat, Binding::Key(K::KeyB));
         map.insert(Respawn, Binding::Key(K::Space));
+        map.insert(Reinstance, Binding::Key(K::KeyK));
         map.insert(ToggleStats, Binding::Key(K::F3));
         Bindings { map }
     }

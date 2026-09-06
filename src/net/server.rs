@@ -849,6 +849,19 @@ impl Server {
                 self.broadcast_player_info(slot);
             }
             ClientMsg::RequestRespawn => {
+                // From a living player this is a request to be reprinted, and
+                // the way to grant it is to end the instance they are in. The
+                // clock, the score and the killfeed then treat it exactly
+                // like any other death, which is the point: dying on purpose
+                // costs what dying costs.
+                let alive = self.world.player(slot).map(|p| p.alive).unwrap_or(false);
+                if alive && self.state.phase == Phase::Live {
+                    let pos = self.world.player(slot).map(|p| p.mv.pos).unwrap_or_default();
+                    self.world.apply_damage(slot, slot, 1000.0, DeathCause::Reinstance,
+                                            crate::game::weapons::WeaponId::CombatKnife,
+                                            pos + glam::Vec3::Y * 1.1,
+                                            HitZone::Body);
+                }
                 if let Some(c) = self.clients[slot as usize].as_mut() { c.wants_respawn = true; }
             }
             ClientMsg::HostConfig { map, mode, bots, score_limit, time_limit, friendly_fire } => {
