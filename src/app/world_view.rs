@@ -392,7 +392,11 @@ impl ViewModel {
         // The models are built at real proportions - a rifle is most of a
         // metre - so the carry positions sit further out than they did when a
         // rifle was seven boxes and sixty centimetres long.
-        let hip = Vec3::new(0.150, -0.205, -0.86);
+        // Close enough to read as held. At 86 cm the model, which is at real
+        // proportions, took up a fifth of the screen and looked like a prop
+        // hanging in the air in front of the player rather than a weapon in
+        // their hands.
+        let hip = Vec3::new(0.172, -0.228, -0.70);
         // Aiming is derived, not authored: put the weapon where its own rear
         // sight lands on the centre of the screen. Every weapon then has a
         // correct sight picture for free, and moving a sight on a model moves
@@ -476,10 +480,21 @@ impl ViewModel {
         // the box list - firing hand on the lowest, support hand on the most
         // forward - is a fair guess for a rifle and quite wrong for a
         // revolver, whose most forward box is the barrel.
-        fn glove(r: &mut Renderer, hands: Mat4, at: Vec3, size: Vec3) {
+        //
+        // A glove is a palm and a thumb. One capsule was a pale blob that
+        // vanished against the receiver; two shapes in a dark glove colour
+        // read as a hand gripping something even at this size.
+        fn glove(r: &mut Renderer, hands: Mat4, at: Vec3, size: Vec3, thumb: f32) {
+            const LEATHER: [f32; 4] = [0.30, 0.29, 0.27, 1.0];
             let m = hands * Mat4::from_translation(at) * Mat4::from_scale(size);
+            r.push_viewmodel(meshgen::PartShape::Bevel, PartInstance::from_matrix(
+                m, LEATHER, Mat::Fabric.layer(), [3.0, 0.0, 0.0]));
+            // Thumb, laid along the weapon on whichever side the hand is.
+            let t = hands
+                * Mat4::from_translation(at + Vec3::new(thumb * size.x * 0.62, size.y * 0.20, -size.z * 0.18))
+                * Mat4::from_scale(Vec3::new(size.x * 0.42, size.y * 0.34, size.z * 0.78));
             r.push_viewmodel(meshgen::PartShape::Capsule, PartInstance::from_matrix(
-                m, [0.88, 0.86, 0.82, 1.0], Mat::Tarp.layer(), [1.0, 0.0, 0.0]));
+                t, LEATHER, Mat::Fabric.layer(), [3.0, 0.0, 0.0]));
         }
         // A forearm is a box aimed along `dir`, built from an explicit basis so
         // the angles cannot be got wrong.
@@ -491,28 +506,41 @@ impl ViewModel {
             // to be the Y column. Putting it in Z - which is right for a box,
             // and was - squashes the capsule flat and leaves a lens-shaped
             // blob where the sleeve should be.
-            let m = hands * Mat4::from_cols(
-                (right * thick).extend(0.0),
-                (f * len).extend(0.0),
-                (up * thick * 0.86).extend(0.0),
-                (from + f * (len * 0.5)).extend(1.0),
+            let basis = |t: f32, l: f32, at: Vec3| Mat4::from_cols(
+                (right * t).extend(0.0),
+                (f * l).extend(0.0),
+                (up * t * 0.86).extend(0.0),
+                at.extend(1.0),
             );
+            // The sleeve runs long enough to leave the frame. It used to stop
+            // in mid-air a hand's width behind the glove, which read as two
+            // green marrows floating beside the gun rather than as arms
+            // belonging to someone.
+            let m = hands * basis(thick, len, from + f * (len * 0.5));
             r.push_viewmodel(meshgen::PartShape::Capsule, PartInstance::from_matrix(
-                m, [0.72, 0.72, 0.70, 1.0], Mat::Camo.layer(), [1.0, 0.0, 0.0]));
+                m, [0.36, 0.38, 0.31, 1.0], Mat::Camo.layer(), [2.4, 0.0, 0.0]));
+            // A cuff at the wrist: a short wider band where the sleeve ends
+            // and the glove begins, which is what stops the two reading as one
+            // continuous tube.
+            let c = hands * basis(thick * 1.20, thick * 1.5, from + f * (thick * 0.55));
+            r.push_viewmodel(meshgen::PartShape::Cylinder, PartInstance::from_matrix(
+                c, [0.31, 0.32, 0.28, 1.0], Mat::Canvas.layer(), [2.0, 0.0, 0.0]));
         }
 
         // Hands and sleeves scale with the weapon only in the axes the weapon
         // grew in; a hand is a hand whatever it is holding.
         let hand_at = |p: Vec3| Vec3::new(p.x * model_scale.x, p.y * model_scale.y, p.z * model_scale.z);
         let gp = hand_at(model.grip);
-        glove(r, hands, Vec3::new(0.004, gp.y + 0.020, gp.z + 0.004), Vec3::new(0.062, 0.086, 0.080));
-        forearm(r, hands, Vec3::new(0.014, gp.y - 0.012, gp.z + 0.046),
-                Vec3::new(0.30, -0.50, 0.81), 0.24, 0.052);
+        glove(r, hands, Vec3::new(0.006, gp.y + 0.018, gp.z + 0.004),
+              Vec3::new(0.066, 0.090, 0.082), -1.0);
+        forearm(r, hands, Vec3::new(0.016, gp.y - 0.020, gp.z + 0.050),
+                Vec3::new(0.34, -0.52, 0.78), 0.44, 0.055);
         if def.shape.two_handed() {
             let fp = hand_at(model.fore);
-            glove(r, hands, Vec3::new(-0.004, fp.y - 0.010, fp.z + 0.010), Vec3::new(0.060, 0.070, 0.092));
-            forearm(r, hands, Vec3::new(-0.026, fp.y - 0.044, fp.z + 0.056),
-                    Vec3::new(-0.50, -0.52, 0.69), 0.25, 0.050);
+            glove(r, hands, Vec3::new(-0.006, fp.y - 0.012, fp.z + 0.010),
+                  Vec3::new(0.064, 0.074, 0.096), 1.0);
+            forearm(r, hands, Vec3::new(-0.030, fp.y - 0.050, fp.z + 0.060),
+                    Vec3::new(-0.52, -0.50, 0.69), 0.42, 0.052);
         }
 
         // Track the muzzle in world space so effects can be spawned there.

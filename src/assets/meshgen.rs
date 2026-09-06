@@ -1749,202 +1749,202 @@ use Mat::*;
 // vents, flat-top rail, collapsible stock on a buffer tube, and a magazine
 // built from three segments so it curves the way a real one does.
 const RIFLE: [WeaponPart; 27] = [
-    wp(0.0, 0.014, -0.07, 0.050, 0.064, 0.34, MetalPanel),      // upper receiver
-    wp(0.0, 0.040, -0.07, 0.044, 0.020, 0.33, MetalRust),       // upper spine
-    wp(0.0, -0.040, 0.015, 0.046, 0.058, 0.15, MetalPanel),     // lower receiver
-    wp(0.0, 0.006, -0.31, 0.054, 0.058, 0.23, MetalPanel),      // handguard
-    wp(0.026, 0.006, -0.31, 0.006, 0.030, 0.20, MetalRust),     // vent slots, right
-    wp(-0.026, 0.006, -0.31, 0.006, 0.030, 0.20, MetalRust),    // vent slots, left
-    wp(0.0, -0.020, -0.31, 0.030, 0.008, 0.20, MetalRust),      // vent slots, under
-    wpc(0.0, 0.006, -0.49, 0.019, 0.20, PipeMetal),             // barrel
-    wpc(0.0, 0.006, -0.615, 0.029, 0.055, MetalRust),           // muzzle brake
-    wpc(0.0, 0.006, -0.632, 0.033, 0.012, MetalPanel),          // brake port ring
-    wpc(0.0, 0.032, -0.43, 0.030, 0.048, PipeMetal),            // gas block
-    wp(0.0, 0.051, -0.17, 0.030, 0.014, 0.40, MetalPlateDiamond), // top rail
-    wp(0.0, 0.076, 0.02, 0.026, 0.030, 0.032, MetalPanel),      // rear sight
-    wp(0.0, 0.088, 0.02, 0.030, 0.008, 0.026, MetalRust),       // rear aperture ring
-    wp(0.0, 0.072, -0.45, 0.014, 0.036, 0.020, MetalPanel),     // front post
-    wp(0.0, 0.086, -0.45, 0.026, 0.010, 0.016, MetalPanel),     // front sight hood
-    wp(0.026, 0.052, 0.115, 0.022, 0.015, 0.085, MetalPanel),   // charging handle
-    wp(0.029, 0.020, -0.02, 0.008, 0.030, 0.095, MetalRust),    // ejection port
-    wp(0.031, 0.020, -0.06, 0.006, 0.018, 0.030, MetalPlateDiamond), // forward assist
-    wpx(0.0, -0.104, -0.002, 0.038, 0.098, 0.070, -0.10, MetalPanel), // magazine, upper
-    wpx(0.0, -0.166, 0.020, 0.036, 0.080, 0.066, -0.30, MetalPanel),  // magazine, curve
-    wpx(0.0, -0.204, 0.038, 0.040, 0.018, 0.070, -0.30, MetalRust),   // magazine floorplate
-    wpx(0.0, -0.112, 0.088, 0.040, 0.150, 0.052, 0.34, Rubber), // pistol grip
-    wp(0.0, -0.056, 0.048, 0.030, 0.010, 0.052, MetalPanel),    // trigger guard
-    wpc(0.0, 0.014, 0.145, 0.031, 0.14, PipeMetal),             // buffer tube
-    wp(0.0, 0.008, 0.215, 0.040, 0.070, 0.15, MetalPanel),      // stock
-    wp(0.0, 0.008, 0.292, 0.044, 0.082, 0.020, Tire),           // butt pad
+    wp(0.0, 0.014, -0.07, 0.050, 0.064, 0.34, GunMetal),      // upper receiver
+    wp(0.0, 0.040, -0.07, 0.044, 0.020, 0.33, GunPolymer),       // upper spine
+    wp(0.0, -0.040, 0.015, 0.046, 0.058, 0.15, GunMetal),     // lower receiver
+    wp(0.0, 0.006, -0.31, 0.054, 0.058, 0.23, GunPolymer),    // handguard
+    wp(0.026, 0.006, -0.31, 0.006, 0.030, 0.20, GunPolymer),     // vent slots, right
+    wp(-0.026, 0.006, -0.31, 0.006, 0.030, 0.20, GunPolymer),    // vent slots, left
+    wp(0.0, -0.020, -0.31, 0.030, 0.008, 0.20, GunPolymer),      // vent slots, under
+    wpc(0.0, 0.006, -0.49, 0.019, 0.20, GunMetal),             // barrel
+    wpc(0.0, 0.006, -0.615, 0.029, 0.055, GunPolymer),           // muzzle brake
+    wpc(0.0, 0.006, -0.632, 0.033, 0.012, GunMetal),          // brake port ring
+    wpc(0.0, 0.032, -0.43, 0.030, 0.048, GunMetal),            // gas block
+    wp(0.0, 0.051, -0.17, 0.030, 0.014, 0.40, GunPolymer), // top rail
+    wp(0.0, 0.076, 0.02, 0.026, 0.030, 0.032, GunMetal),      // rear sight
+    wp(0.0, 0.088, 0.02, 0.030, 0.008, 0.026, GunPolymer),       // rear aperture ring
+    wp(0.0, 0.072, -0.45, 0.014, 0.036, 0.020, GunMetal),     // front post
+    wp(0.0, 0.086, -0.45, 0.026, 0.010, 0.016, GunMetal),     // front sight hood
+    wp(0.026, 0.052, 0.115, 0.022, 0.015, 0.085, GunMetal),   // charging handle
+    wp(0.029, 0.020, -0.02, 0.008, 0.030, 0.095, GunPolymer),    // ejection port
+    wp(0.031, 0.020, -0.06, 0.006, 0.018, 0.030, GunPolymer), // forward assist
+    wpx(0.0, -0.104, -0.002, 0.038, 0.098, 0.070, -0.10, GunPolymer), // magazine, upper
+    wpx(0.0, -0.166, 0.020, 0.036, 0.080, 0.066, -0.30, GunPolymer), // magazine, curve
+    wpx(0.0, -0.204, 0.038, 0.040, 0.018, 0.070, -0.30, GunPolymer),   // magazine floorplate
+    wpx(0.0, -0.112, 0.088, 0.040, 0.150, 0.052, 0.34, GunPolymer), // pistol grip
+    wp(0.0, -0.056, 0.048, 0.030, 0.010, 0.052, GunMetal),    // trigger guard
+    wpc(0.0, 0.014, 0.145, 0.031, 0.14, GunMetal),             // buffer tube
+    wp(0.0, 0.008, 0.215, 0.040, 0.070, 0.15, GunPolymer),    // stock
+    wp(0.0, 0.008, 0.292, 0.044, 0.082, 0.020, GunPolymer),           // butt pad
 ];
 
 // Bullpup: the whole action sits behind the grip, so the same barrel length
 // comes in a much shorter weapon. Carries its optic as standard.
 const BULLPUP: [WeaponPart; 20] = [
-    wp(0.0, 0.012, 0.04, 0.056, 0.090, 0.40, MetalPanel),       // body shell
-    wp(0.0, 0.052, 0.04, 0.048, 0.014, 0.38, MetalRust),        // shell spine
-    wp(0.0, 0.010, -0.24, 0.048, 0.056, 0.20, MetalPanel),      // handguard
-    wp(0.024, 0.010, -0.24, 0.006, 0.028, 0.17, MetalRust),     // vents, right
-    wp(-0.024, 0.010, -0.24, 0.006, 0.028, 0.17, MetalRust),    // vents, left
-    wpc(0.0, 0.010, -0.41, 0.019, 0.17, PipeMetal),             // barrel
-    wpc(0.0, 0.010, -0.515, 0.027, 0.05, MetalRust),            // flash hider
-    wp(0.0, 0.058, -0.10, 0.028, 0.014, 0.44, MetalPlateDiamond), // rail
-    wpc(0.0, 0.086, -0.06, 0.046, 0.16, MetalPanel),            // optic body
+    wp(0.0, 0.012, 0.04, 0.056, 0.090, 0.40, GunMetal),       // body shell
+    wp(0.0, 0.052, 0.04, 0.048, 0.014, 0.38, GunPolymer),        // shell spine
+    wp(0.0, 0.010, -0.24, 0.048, 0.056, 0.20, GunMetal),      // handguard
+    wp(0.024, 0.010, -0.24, 0.006, 0.028, 0.17, GunPolymer),     // vents, right
+    wp(-0.024, 0.010, -0.24, 0.006, 0.028, 0.17, GunPolymer),    // vents, left
+    wpc(0.0, 0.010, -0.41, 0.019, 0.17, GunMetal),             // barrel
+    wpc(0.0, 0.010, -0.515, 0.027, 0.05, GunPolymer),            // flash hider
+    wp(0.0, 0.058, -0.10, 0.028, 0.014, 0.44, GunPolymer), // rail
+    wpc(0.0, 0.086, -0.06, 0.046, 0.16, GunMetal),            // optic body
     wpc(0.0, 0.086, -0.145, 0.052, 0.022, ControlPanel),        // objective
     wpc(0.0, 0.086, 0.028, 0.046, 0.020, Glass),                // eyepiece
-    wp(0.0, 0.114, -0.06, 0.020, 0.014, 0.10, MetalRust),       // optic mount rail
-    wpx(0.0, -0.108, 0.140, 0.040, 0.100, 0.068, -0.08, MetalRust), // magazine, upper
-    wpx(0.0, -0.178, 0.168, 0.038, 0.080, 0.064, -0.26, MetalRust), // magazine, curve
-    wpx(0.0, -0.100, -0.055, 0.038, 0.135, 0.050, 0.30, Rubber),    // grip
-    wp(0.0, -0.048, -0.095, 0.028, 0.010, 0.050, MetalPanel),   // trigger guard
-    wpx(0.0, -0.052, -0.235, 0.034, 0.090, 0.044, -0.20, Rubber), // foregrip
-    wp(0.0, -0.030, 0.10, 0.052, 0.030, 0.12, MetalPanel),      // magwell shoulder
-    wp(0.0, 0.006, 0.255, 0.052, 0.095, 0.03, Tire),            // butt pad
-    wp(0.026, 0.040, 0.10, 0.010, 0.026, 0.07, MetalRust),      // ejection port
+    wp(0.0, 0.114, -0.06, 0.020, 0.014, 0.10, GunPolymer),       // optic mount rail
+    wpx(0.0, -0.108, 0.140, 0.040, 0.100, 0.068, -0.08, GunPolymer), // magazine, upper
+    wpx(0.0, -0.178, 0.168, 0.038, 0.080, 0.064, -0.26, GunPolymer), // magazine, curve
+    wpx(0.0, -0.100, -0.055, 0.038, 0.135, 0.050, 0.30, GunPolymer),    // grip
+    wp(0.0, -0.048, -0.095, 0.028, 0.010, 0.050, GunMetal),   // trigger guard
+    wpx(0.0, -0.052, -0.235, 0.034, 0.090, 0.044, -0.20, GunPolymer), // foregrip
+    wp(0.0, -0.030, 0.10, 0.052, 0.030, 0.12, GunMetal),      // magwell shoulder
+    wp(0.0, 0.006, 0.255, 0.052, 0.095, 0.03, GunPolymer),            // butt pad
+    wp(0.026, 0.040, 0.10, 0.010, 0.026, 0.07, GunPolymer),      // ejection port
 ];
 
 // Submachine gun: short, blocky, folding stock, magazine through the grip.
 const SMG: [WeaponPart; 19] = [
-    wp(0.0, 0.012, -0.06, 0.048, 0.070, 0.28, MetalPanel),      // receiver
-    wp(0.0, 0.040, -0.06, 0.042, 0.016, 0.27, MetalRust),       // receiver spine
-    wp(0.0, 0.012, -0.235, 0.036, 0.040, 0.10, MetalPanel),     // barrel shroud
-    wp(0.020, 0.012, -0.235, 0.006, 0.022, 0.085, MetalRust),   // shroud vents
-    wp(-0.020, 0.012, -0.235, 0.006, 0.022, 0.085, MetalRust),
-    wpc(0.0, 0.012, -0.315, 0.017, 0.09, PipeMetal),            // barrel
-    wpc(0.0, 0.012, -0.360, 0.024, 0.030, MetalRust),           // compensator
-    wp(0.0, 0.048, -0.10, 0.026, 0.013, 0.28, MetalPlateDiamond), // rail
-    wp(0.0, 0.070, -0.005, 0.024, 0.028, 0.028, MetalPanel),    // rear sight
-    wp(0.0, 0.066, -0.245, 0.013, 0.030, 0.018, MetalPanel),    // front sight
-    wp(0.0, 0.078, -0.245, 0.022, 0.010, 0.014, MetalPanel),    // front hood
-    wpx(0.0, -0.100, -0.008, 0.034, 0.110, 0.054, -0.08, MetalPanel), // magazine
-    wpx(0.0, -0.164, 0.006, 0.032, 0.062, 0.050, -0.20, MetalPanel),  // magazine curve
-    wpx(0.0, -0.098, 0.062, 0.038, 0.130, 0.048, 0.28, Rubber), // grip
-    wp(0.0, -0.050, 0.030, 0.028, 0.010, 0.048, MetalPanel),    // trigger guard
-    wpx(0.0, -0.030, -0.175, 0.030, 0.090, 0.042, -0.22, Rubber), // foregrip
-    wp(0.024, 0.030, 0.02, 0.010, 0.026, 0.075, MetalRust),     // ejection port
-    wpc(0.0, 0.014, 0.115, 0.026, 0.09, PipeMetal),             // stock strut
-    wp(0.0, 0.012, 0.185, 0.044, 0.070, 0.024, Tire),           // butt plate
+    wp(0.0, 0.012, -0.06, 0.048, 0.070, 0.28, GunMetal),      // receiver
+    wp(0.0, 0.040, -0.06, 0.042, 0.016, 0.27, GunPolymer),       // receiver spine
+    wp(0.0, 0.012, -0.235, 0.036, 0.040, 0.10, GunMetal),     // barrel shroud
+    wp(0.020, 0.012, -0.235, 0.006, 0.022, 0.085, GunPolymer),   // shroud vents
+    wp(-0.020, 0.012, -0.235, 0.006, 0.022, 0.085, GunPolymer),
+    wpc(0.0, 0.012, -0.315, 0.017, 0.09, GunMetal),            // barrel
+    wpc(0.0, 0.012, -0.360, 0.024, 0.030, GunPolymer),           // compensator
+    wp(0.0, 0.048, -0.10, 0.026, 0.013, 0.28, GunPolymer), // rail
+    wp(0.0, 0.070, -0.005, 0.024, 0.028, 0.028, GunMetal),    // rear sight
+    wp(0.0, 0.066, -0.245, 0.013, 0.030, 0.018, GunMetal),    // front sight
+    wp(0.0, 0.078, -0.245, 0.022, 0.010, 0.014, GunMetal),    // front hood
+    wpx(0.0, -0.100, -0.008, 0.034, 0.110, 0.054, -0.08, GunMetal), // magazine
+    wpx(0.0, -0.164, 0.006, 0.032, 0.062, 0.050, -0.20, GunMetal),  // magazine curve
+    wpx(0.0, -0.098, 0.062, 0.038, 0.130, 0.048, 0.28, GunPolymer), // grip
+    wp(0.0, -0.050, 0.030, 0.028, 0.010, 0.048, GunMetal),    // trigger guard
+    wpx(0.0, -0.030, -0.175, 0.030, 0.090, 0.042, -0.22, GunPolymer), // foregrip
+    wp(0.024, 0.030, 0.02, 0.010, 0.026, 0.075, GunPolymer),     // ejection port
+    wpc(0.0, 0.014, 0.115, 0.026, 0.09, GunMetal),             // stock strut
+    wp(0.0, 0.012, 0.185, 0.044, 0.070, 0.024, GunPolymer),           // butt plate
 ];
 
 // Pump shotgun: wooden furniture, a magazine tube slung under the barrel.
 const SHOTGUN: [WeaponPart; 17] = [
-    wp(0.0, 0.000, -0.05, 0.052, 0.078, 0.26, MetalPanel),      // receiver
-    wp(0.0, 0.038, -0.05, 0.046, 0.014, 0.25, MetalRust),       // receiver top
-    wpc(0.0, 0.022, -0.36, 0.032, 0.38, PipeMetal),             // barrel
-    wpc(0.0, -0.026, -0.32, 0.028, 0.30, MetalPanel),           // magazine tube
-    wp(0.0, -0.002, -0.30, 0.014, 0.026, 0.26, MetalRust),      // barrel/tube web
+    wp(0.0, 0.000, -0.05, 0.052, 0.078, 0.26, GunMetal),      // receiver
+    wp(0.0, 0.038, -0.05, 0.046, 0.014, 0.25, GunPolymer),       // receiver top
+    wpc(0.0, 0.022, -0.36, 0.032, 0.38, GunMetal),             // barrel
+    wpc(0.0, -0.026, -0.32, 0.028, 0.30, GunMetal),           // magazine tube
+    wp(0.0, -0.002, -0.30, 0.014, 0.026, 0.26, GunPolymer),      // barrel/tube web
     wp(0.0, -0.024, -0.235, 0.058, 0.052, 0.13, WoodPlank),     // pump
-    wp(0.0, -0.024, -0.235, 0.062, 0.014, 0.115, MetalRust),    // pump grooves
-    wp(0.0, 0.048, -0.05, 0.022, 0.014, 0.10, MetalPlateDiamond), // rib
-    wp(0.0, 0.046, -0.535, 0.012, 0.020, 0.014, MetalRust),     // bead sight
-    wp(0.0, -0.052, 0.045, 0.024, 0.010, 0.050, MetalPanel),    // trigger guard
-    wp(0.0, -0.034, 0.048, 0.012, 0.024, 0.012, MetalPlateDiamond), // trigger
+    wp(0.0, -0.024, -0.235, 0.062, 0.014, 0.115, GunPolymer),    // pump grooves
+    wp(0.0, 0.048, -0.05, 0.022, 0.014, 0.10, GunPolymer), // rib
+    wp(0.0, 0.046, -0.535, 0.012, 0.020, 0.014, GunPolymer),     // bead sight
+    wp(0.0, -0.052, 0.045, 0.024, 0.010, 0.050, GunMetal),    // trigger guard
+    wp(0.0, -0.034, 0.048, 0.012, 0.024, 0.012, GunPolymer), // trigger
     wpx(0.0, -0.086, 0.085, 0.044, 0.115, 0.055, 0.38, WoodPlank), // grip
     wp(0.0, 0.006, 0.175, 0.048, 0.092, 0.16, WoodPlank),       // stock
     wp(0.0, 0.044, 0.150, 0.042, 0.028, 0.11, WoodPlank),       // comb
-    wp(0.0, -0.008, 0.262, 0.050, 0.100, 0.024, Tire),          // butt pad
-    wp(0.026, 0.000, -0.005, 0.010, 0.030, 0.09, MetalRust),    // ejection port
-    wp(0.0, -0.046, -0.06, 0.030, 0.020, 0.08, MetalPanel),     // loading gate
+    wp(0.0, -0.008, 0.262, 0.050, 0.100, 0.024, GunPolymer),          // butt pad
+    wp(0.026, 0.000, -0.005, 0.010, 0.030, 0.09, GunPolymer),    // ejection port
+    wp(0.0, -0.046, -0.06, 0.030, 0.020, 0.08, GunMetal),     // loading gate
 ];
 
 // Bolt rifle: long heavy barrel, big glass on rings, bipod, cheek riser.
 const SNIPER: [WeaponPart; 22] = [
-    wp(0.0, 0.006, -0.04, 0.048, 0.070, 0.34, MetalPanel),      // action
-    wpc(0.0, 0.006, -0.40, 0.023, 0.40, PipeMetal),             // barrel
-    wpc(0.0, 0.006, -0.30, 0.028, 0.18, MetalPanel),            // barrel flutes
-    wpc(0.0, 0.006, -0.635, 0.032, 0.07, MetalRust),            // muzzle brake
-    wpc(0.0, 0.006, -0.668, 0.036, 0.010, MetalPanel),          // brake ring
-    wp(0.0, 0.048, -0.10, 0.030, 0.014, 0.34, MetalPlateDiamond), // rail
-    wpc(0.0, 0.098, -0.10, 0.052, 0.30, MetalPanel),            // scope tube
+    wp(0.0, 0.006, -0.04, 0.048, 0.070, 0.34, GunMetal),      // action
+    wpc(0.0, 0.006, -0.40, 0.023, 0.40, GunMetal),             // barrel
+    wpc(0.0, 0.006, -0.30, 0.028, 0.18, GunMetal),            // barrel flutes
+    wpc(0.0, 0.006, -0.635, 0.032, 0.07, GunPolymer),            // muzzle brake
+    wpc(0.0, 0.006, -0.668, 0.036, 0.010, GunMetal),          // brake ring
+    wp(0.0, 0.048, -0.10, 0.030, 0.014, 0.34, GunPolymer), // rail
+    wpc(0.0, 0.098, -0.10, 0.052, 0.30, GunMetal),            // scope tube
     wpc(0.0, 0.098, -0.265, 0.062, 0.045, ControlPanel),        // objective bell
-    wpc(0.0, 0.098, -0.292, 0.066, 0.012, MetalRust),           // sunshade lip
+    wpc(0.0, 0.098, -0.292, 0.066, 0.012, GunPolymer),           // sunshade lip
     wpc(0.0, 0.098, 0.058, 0.056, 0.030, Glass),                // eyepiece
-    wpc(0.0, 0.098, 0.078, 0.060, 0.012, Rubber),               // eye cup
-    wpc(0.0, 0.098, -0.13, 0.058, 0.028, MetalRust),            // elevation turret
-    wp(0.030, 0.098, -0.13, 0.030, 0.040, 0.026, MetalRust),    // windage turret
-    wpc(0.0, 0.074, -0.16, 0.030, 0.030, MetalPanel),           // front ring
-    wpc(0.0, 0.074, -0.03, 0.030, 0.030, MetalPanel),           // rear ring
-    wp(0.030, 0.014, 0.05, 0.030, 0.016, 0.016, MetalPlateDiamond), // bolt handle
-    wpc(0.044, 0.014, 0.05, 0.022, 0.022, MetalRust),           // bolt knob
-    wpx(0.0, -0.118, 0.005, 0.036, 0.130, 0.062, -0.14, MetalRust), // magazine
-    wpx(0.0, -0.106, 0.095, 0.042, 0.140, 0.052, 0.32, Rubber), // grip
-    wp(0.0, -0.052, 0.055, 0.028, 0.010, 0.050, MetalPanel),    // trigger guard
+    wpc(0.0, 0.098, 0.078, 0.060, 0.012, GunPolymer),               // eye cup
+    wpc(0.0, 0.098, -0.13, 0.058, 0.028, GunPolymer),            // elevation turret
+    wp(0.030, 0.098, -0.13, 0.030, 0.040, 0.026, GunPolymer),    // windage turret
+    wpc(0.0, 0.074, -0.16, 0.030, 0.030, GunMetal),           // front ring
+    wpc(0.0, 0.074, -0.03, 0.030, 0.030, GunMetal),           // rear ring
+    wp(0.030, 0.014, 0.05, 0.030, 0.016, 0.016, GunPolymer), // bolt handle
+    wpc(0.044, 0.014, 0.05, 0.022, 0.022, GunPolymer),           // bolt knob
+    wpx(0.0, -0.118, 0.005, 0.036, 0.130, 0.062, -0.14, GunPolymer), // magazine
+    wpx(0.0, -0.106, 0.095, 0.042, 0.140, 0.052, 0.32, GunPolymer), // grip
+    wp(0.0, -0.052, 0.055, 0.028, 0.010, 0.050, GunMetal),    // trigger guard
     wp(0.0, 0.030, 0.215, 0.048, 0.062, 0.16, WoodPlank),       // cheek riser
     wp(0.0, -0.020, 0.240, 0.046, 0.090, 0.12, WoodPlank),      // butt stock
 ];
 
 // Light machine gun: box magazine, carry handle, heavy barrel, bipod.
 const LMG: [WeaponPart; 20] = [
-    wp(0.0, 0.010, -0.05, 0.062, 0.098, 0.36, MetalPanel),      // receiver
-    wp(0.0, 0.052, -0.05, 0.054, 0.016, 0.34, MetalRust),       // receiver top
-    wpc(0.0, 0.010, -0.40, 0.026, 0.36, PipeMetal),             // barrel
-    wpc(0.0, 0.010, -0.605, 0.036, 0.06, MetalRust),            // flash hider
-    wp(0.0, 0.048, -0.34, 0.034, 0.048, 0.20, MetalPlateDiamond), // heat shield
-    wp(0.024, 0.030, -0.34, 0.008, 0.030, 0.18, MetalRust),     // shield vents
-    wp(-0.024, 0.030, -0.34, 0.008, 0.030, 0.18, MetalRust),
-    wp(0.0, 0.078, 0.02, 0.028, 0.030, 0.032, MetalPanel),      // rear sight
-    wp(0.0, 0.074, -0.44, 0.014, 0.040, 0.020, MetalPanel),     // front post
-    wp(0.0, 0.090, -0.44, 0.028, 0.010, 0.016, MetalPanel),     // front hood
-    wpc(0.0, 0.084, -0.16, 0.027, 0.16, PipeMetal),             // carry handle
-    wp(0.0, -0.128, -0.02, 0.098, 0.150, 0.170, MetalRust),     // ammunition box
+    wp(0.0, 0.010, -0.05, 0.062, 0.098, 0.36, GunMetal),      // receiver
+    wp(0.0, 0.052, -0.05, 0.054, 0.016, 0.34, GunPolymer),       // receiver top
+    wpc(0.0, 0.010, -0.40, 0.026, 0.36, GunMetal),             // barrel
+    wpc(0.0, 0.010, -0.605, 0.036, 0.06, GunPolymer),            // flash hider
+    wp(0.0, 0.048, -0.34, 0.034, 0.048, 0.20, GunPolymer), // heat shield
+    wp(0.024, 0.030, -0.34, 0.008, 0.030, 0.18, GunPolymer),     // shield vents
+    wp(-0.024, 0.030, -0.34, 0.008, 0.030, 0.18, GunPolymer),
+    wp(0.0, 0.078, 0.02, 0.028, 0.030, 0.032, GunMetal),      // rear sight
+    wp(0.0, 0.074, -0.44, 0.014, 0.040, 0.020, GunMetal),     // front post
+    wp(0.0, 0.090, -0.44, 0.028, 0.010, 0.016, GunMetal),     // front hood
+    wpc(0.0, 0.084, -0.16, 0.027, 0.16, GunMetal),             // carry handle
+    wp(0.0, -0.128, -0.02, 0.098, 0.150, 0.170, GunPolymer),     // ammunition box
     wp(0.0, -0.128, -0.108, 0.086, 0.120, 0.010, HazardStripe), // box latch
-    wp(0.0, -0.052, -0.02, 0.040, 0.030, 0.060, MetalPlateDiamond), // feed chute
-    wpx(0.0, -0.112, 0.105, 0.044, 0.150, 0.055, 0.32, Rubber), // grip
-    wp(0.0, -0.056, 0.062, 0.032, 0.011, 0.055, MetalPanel),    // trigger guard
-    wp(0.0, 0.010, 0.205, 0.050, 0.096, 0.16, MetalPanel),      // stock
-    wp(0.0, 0.004, 0.292, 0.052, 0.104, 0.024, Tire),           // butt pad
-    wpx(0.030, -0.078, -0.46, 0.016, 0.110, 0.016, 0.30, PipeMetal),  // bipod leg, right
-    wpx(-0.030, -0.078, -0.46, 0.016, 0.110, 0.016, 0.30, PipeMetal), // bipod leg, left
+    wp(0.0, -0.052, -0.02, 0.040, 0.030, 0.060, GunPolymer), // feed chute
+    wpx(0.0, -0.112, 0.105, 0.044, 0.150, 0.055, 0.32, GunPolymer), // grip
+    wp(0.0, -0.056, 0.062, 0.032, 0.011, 0.055, GunMetal),    // trigger guard
+    wp(0.0, 0.010, 0.205, 0.050, 0.096, 0.16, GunMetal),      // stock
+    wp(0.0, 0.004, 0.292, 0.052, 0.104, 0.024, GunPolymer),           // butt pad
+    wpx(0.030, -0.078, -0.46, 0.016, 0.110, 0.016, 0.30, GunMetal),  // bipod leg, right
+    wpx(-0.030, -0.078, -0.46, 0.016, 0.110, 0.016, 0.30, GunMetal), // bipod leg, left
 ];
 
 // Service pistol.
 const PISTOL_SMALL: [WeaponPart; 11] = [
-    wp(0.0, 0.028, -0.075, 0.032, 0.046, 0.185, MetalPanel),    // slide
-    wp(0.0, 0.052, -0.075, 0.014, 0.008, 0.175, MetalPlateDiamond), // slide rib
-    wp(0.022, 0.028, -0.010, 0.006, 0.030, 0.045, MetalRust),   // slide serrations
-    wp(-0.022, 0.028, -0.010, 0.006, 0.030, 0.045, MetalRust),
-    wp(0.0, 0.044, -0.155, 0.012, 0.016, 0.014, MetalRust),     // front sight
-    wp(0.0, 0.046, 0.005, 0.024, 0.018, 0.016, MetalRust),      // rear sight
-    wpc(0.0, 0.008, -0.170, 0.014, 0.030, PipeMetal),           // muzzle
-    wp(0.0, -0.005, -0.030, 0.030, 0.030, 0.110, MetalPanel),   // frame
-    wp(0.0, -0.022, -0.090, 0.026, 0.014, 0.060, MetalPlateDiamond), // accessory rail
-    wpx(0.0, -0.088, 0.030, 0.032, 0.140, 0.048, 0.24, Rubber), // grip
-    wp(0.0, -0.038, -0.010, 0.022, 0.010, 0.044, MetalPanel),   // trigger guard
+    wp(0.0, 0.028, -0.075, 0.032, 0.046, 0.185, GunMetal),    // slide
+    wp(0.0, 0.052, -0.075, 0.014, 0.008, 0.175, GunPolymer), // slide rib
+    wp(0.022, 0.028, -0.010, 0.006, 0.030, 0.045, GunPolymer),   // slide serrations
+    wp(-0.022, 0.028, -0.010, 0.006, 0.030, 0.045, GunPolymer),
+    wp(0.0, 0.044, -0.155, 0.012, 0.016, 0.014, GunPolymer),     // front sight
+    wp(0.0, 0.046, 0.005, 0.024, 0.018, 0.016, GunPolymer),      // rear sight
+    wpc(0.0, 0.008, -0.170, 0.014, 0.030, GunMetal),           // muzzle
+    wp(0.0, -0.005, -0.030, 0.030, 0.030, 0.110, GunMetal),   // frame
+    wp(0.0, -0.022, -0.090, 0.026, 0.014, 0.060, GunPolymer), // accessory rail
+    wpx(0.0, -0.088, 0.030, 0.032, 0.140, 0.048, 0.24, GunPolymer), // grip
+    wp(0.0, -0.038, -0.010, 0.022, 0.010, 0.044, GunMetal),   // trigger guard
 ];
 
 // Heavy revolver.
 const PISTOL_HEAVY: [WeaponPart; 11] = [
-    wpc(0.0, 0.024, -0.150, 0.025, 0.170, PipeMetal),           // barrel
-    wp(0.0, 0.046, -0.150, 0.020, 0.016, 0.165, MetalPlateDiamond), // top rib
-    wp(0.0, -0.002, -0.150, 0.022, 0.024, 0.150, MetalPanel),   // ejector shroud
-    wpc(0.0, 0.020, -0.030, 0.058, 0.070, MetalRust),           // cylinder
-    wp(0.0, 0.020, -0.030, 0.062, 0.030, 0.060, MetalPanel),    // cylinder flutes
-    wp(0.0, 0.022, 0.030, 0.030, 0.052, 0.075, MetalPanel),     // frame
-    wp(0.0, 0.056, 0.052, 0.020, 0.024, 0.026, MetalRust),      // hammer
-    wpc(0.0, 0.020, 0.006, 0.016, 0.048, MetalPlateDiamond),    // cylinder pin
+    wpc(0.0, 0.024, -0.150, 0.025, 0.170, GunMetal),           // barrel
+    wp(0.0, 0.046, -0.150, 0.020, 0.016, 0.165, GunPolymer), // top rib
+    wp(0.0, -0.002, -0.150, 0.022, 0.024, 0.150, GunMetal),   // ejector shroud
+    wpc(0.0, 0.020, -0.030, 0.058, 0.070, GunPolymer),           // cylinder
+    wp(0.0, 0.020, -0.030, 0.062, 0.030, 0.060, GunMetal),    // cylinder flutes
+    wp(0.0, 0.022, 0.030, 0.030, 0.052, 0.075, GunMetal),     // frame
+    wp(0.0, 0.056, 0.052, 0.020, 0.024, 0.026, GunPolymer),      // hammer
+    wpc(0.0, 0.020, 0.006, 0.016, 0.048, GunPolymer),    // cylinder pin
     wpx(0.0, -0.078, 0.070, 0.036, 0.145, 0.058, 0.30, WoodPlank), // grip
-    wp(0.0, -0.030, 0.020, 0.024, 0.010, 0.050, MetalPanel),    // trigger guard
-    wp(0.0, 0.050, -0.225, 0.012, 0.018, 0.014, MetalRust),     // front sight
+    wp(0.0, -0.030, 0.020, 0.024, 0.010, 0.050, GunMetal),    // trigger guard
+    wp(0.0, 0.050, -0.225, 0.012, 0.018, 0.014, GunPolymer),     // front sight
 ];
 
 // Combat knife.
 const KNIFE: [WeaponPart; 6] = [
-    wp(0.0, 0.006, -0.150, 0.010, 0.036, 0.170, MetalPlateDiamond), // blade
-    wp(0.0, 0.020, -0.235, 0.008, 0.020, 0.045, MetalPanel),    // point taper
-    wp(0.0, -0.010, -0.140, 0.011, 0.014, 0.110, MetalRust),    // serrated spine
-    wp(0.0, 0.000, -0.052, 0.038, 0.030, 0.016, MetalPanel),    // guard
-    wp(0.0, 0.000, 0.010, 0.026, 0.030, 0.110, Rubber),         // handle
-    wp(0.0, 0.000, 0.072, 0.030, 0.034, 0.014, MetalRust),      // pommel
+    wp(0.0, 0.006, -0.150, 0.010, 0.036, 0.170, GunPolymer), // blade
+    wp(0.0, 0.020, -0.235, 0.008, 0.020, 0.045, GunMetal),    // point taper
+    wp(0.0, -0.010, -0.140, 0.011, 0.014, 0.110, GunPolymer),    // serrated spine
+    wp(0.0, 0.000, -0.052, 0.038, 0.030, 0.016, GunMetal),    // guard
+    wp(0.0, 0.000, 0.010, 0.026, 0.030, 0.110, GunPolymer),         // handle
+    wp(0.0, 0.000, 0.072, 0.030, 0.034, 0.014, GunPolymer),      // pommel
 ];
 
 // Entrenching tool.
 const SPADE: [WeaponPart; 6] = [
-    wp(0.0, 0.000, -0.235, 0.120, 0.018, 0.130, MetalRust),     // blade
-    wp(0.0, 0.000, -0.300, 0.090, 0.014, 0.045, MetalPlateDiamond), // blade edge
-    wp(0.0, 0.010, -0.235, 0.030, 0.014, 0.110, MetalPanel),    // blade spine
-    wp(0.0, 0.000, -0.165, 0.040, 0.030, 0.055, MetalPanel),    // socket
+    wp(0.0, 0.000, -0.235, 0.120, 0.018, 0.130, GunPolymer),     // blade
+    wp(0.0, 0.000, -0.300, 0.090, 0.014, 0.045, GunPolymer), // blade edge
+    wp(0.0, 0.010, -0.235, 0.030, 0.014, 0.110, GunMetal),    // blade spine
+    wp(0.0, 0.000, -0.165, 0.040, 0.030, 0.055, GunMetal),    // socket
     wpc(0.0, 0.000, -0.040, 0.024, 0.210, WoodPlank),           // shaft
-    wp(0.0, 0.000, 0.075, 0.048, 0.026, 0.030, Rubber),         // grip
+    wp(0.0, 0.000, 0.075, 0.048, 0.026, 0.030, GunPolymer),         // grip
 ];
 
 const M_RIFLE: WeaponModel = WeaponModel {

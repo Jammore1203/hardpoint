@@ -79,6 +79,13 @@ pub enum Mat {
     Marble,
     Bunker,
     Duct,
+    // -- Weapons ----------------------------------------------------------
+    // Guns were built out of the same MetalPanel and MetalRust as the crates
+    // and the pipework, which made every rifle in the game a light blue-grey
+    // object with orange furniture. These two exist so a weapon can be the
+    // colour a weapon is.
+    GunMetal,
+    GunPolymer,
     Mesh,
 }
 
@@ -135,6 +142,9 @@ impl Mat {
             | ShippingGreen | Barrel => 0.36,
             MetalPanel | HullPainted | PipeMetal | RedPaint | BluePaint
             | YellowPaint | HazardStripe | Sign => 0.48,
+            // Blued steel is polished; a polymer furniture set is not.
+            GunMetal => 0.44,
+            GunPolymer => 0.17,
             MetalPlateDiamond | ControlPanel => 0.55,
             // The polished end.
             TileFloor | Marble => 0.70,
@@ -157,7 +167,8 @@ impl Mat {
             Snow | SnowRock | CamoWinter | Ice => Surface::Snow,
             MetalPanel | MetalRust | MetalPlateDiamond | Corrugated | Grating
             | HullPainted | PipeMetal | ShippingRed | ShippingBlue | ShippingGreen
-            | Barrel | BarrelRust | Duct | Mesh | RoofMetal => Surface::Metal,
+            | Barrel | BarrelRust | Duct | Mesh | RoofMetal | GunMetal
+            | GunPolymer => Surface::Metal,
             WoodFloor | WoodCrate | WoodPlank => Surface::Wood,
             Glass | WindowLit | Screen => Surface::Glass,
             Sandbag | Tarp | Canvas | Camo | Fabric | Rubber | Tire => Surface::Soft,
@@ -235,6 +246,8 @@ impl Mat {
             Marble => [186, 182, 176],
             Bunker => [116, 116, 108],
             Duct => [140, 142, 144],
+            GunMetal => [60, 63, 70],
+            GunPolymer => [40, 41, 44],
             Mesh => [104, 108, 110],
         }
     }

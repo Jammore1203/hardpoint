@@ -690,6 +690,41 @@ fn gen_lit(p: &mut Painter, tint: [u8; 3], cells: f32, scanlines: bool, seed: u3
     });
 }
 
+/// Blued steel: fine lengthwise machining, a few wear marks on the high spots.
+///
+/// A weapon is the one object the player looks at for the whole match, at
+/// twenty centimetres, so its material is the one that has to survive being
+/// looked at closely. The frequency here is deliberately high -- the tile
+/// covers a few centimetres of a receiver, not two metres of wall.
+fn gen_gunmetal(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    p.shade_relief(tint, 0.18, |u, v| {
+        // Machining runs along the part. Two frequencies so it does not read
+        // as a ruled grating.
+        let cut = vnoise(u * 6.0, v * 180.0, 180, seed) * 0.6
+            + vnoise(u * 3.0, v * 74.0, 74, seed ^ 0x2B) * 0.4;
+        let mottle = fbm(u * 7.0, v * 7.0, 7, 3, seed ^ 0x5F);
+        let pit = vnoise(u * 46.0, v * 46.0, 46, seed ^ 0x91);
+        // Wear: the raised edges of a blued part go bright before anything
+        // else does, and that is most of what says "used" about a weapon.
+        let wear = smoothstep(0.74, 0.94, mottle) * 0.55;
+        let albedo = 0.82 + (cut - 0.5) * 0.10 + (mottle - 0.5) * 0.16 + wear;
+        let height = (cut - 0.5) * 0.55 + (mottle - 0.5) * 0.35 - (pit - 0.72).max(0.0) * 1.2;
+        (albedo, height)
+    });
+}
+
+/// Matte black furniture: a fine moulded stipple and nothing else.
+fn gen_polymer(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    p.shade_relief(tint, 0.26, |u, v| {
+        let stipple = vnoise(u * 96.0, v * 96.0, 96, seed);
+        let coarse = fbm(u * 11.0, v * 11.0, 11, 3, seed ^ 0x17);
+        let scuff = smoothstep(0.80, 0.97, coarse) * 0.30;
+        let albedo = 0.90 + (stipple - 0.5) * 0.12 + (coarse - 0.5) * 0.10 + scuff;
+        let height = (stipple - 0.5) * 0.9 + (coarse - 0.5) * 0.25;
+        (albedo, height)
+    });
+}
+
 /// Tyre tread: chevron blocks with a circumferential groove.
 ///
 /// Rubber and tyre shared a granular noise, which on a truck wheel read as a
@@ -943,6 +978,8 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         Marble => gen_rough(&mut p, tint, 0.05, 0.30, seed),
         Bunker => gen_panel(&mut p, tint, 1.5, false, 0.15, seed),
         Duct => gen_corrugated(&mut p, tint, 8.0, seed),
+        GunMetal => gen_gunmetal(&mut p, tint, seed),
+        GunPolymer => gen_polymer(&mut p, tint, seed),
         Mesh => gen_grid(&mut p, tint, 10.0, 0.10, true, seed),
     }
 
