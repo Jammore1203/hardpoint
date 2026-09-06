@@ -56,6 +56,21 @@ pub mod tune {
     pub const LAND_HARD: f32 = 8.0;
     /// Vertical speed applied when stepping off a ledge, to avoid float.
     pub const LADDER_SPEED: f32 = 3.4;
+    /// How fast an airborne player can turn the direction they are already
+    /// travelling in, in radians per second.
+    ///
+    /// Quake-style air acceleration alone gives almost no control over a short
+    /// hop: holding forward while already at walking pace adds nothing at all
+    /// (the wish speed is below the current speed), so the only thing a jump
+    /// responds to is a sideways press, and then only by `AIR_CAP`. Over the
+    /// half second a jump lasts that is a few centimetres of steering, which
+    /// is why jumping felt like being fired out of a tube. This turns the
+    /// velocity toward the wish direction instead of adding to it, so a player
+    /// can aim a jump without any of it becoming free speed.
+    pub const AIR_STEER: f32 = 3.6;
+    /// Speed below which air steering does nothing, to avoid spinning a
+    /// player who is essentially falling straight down.
+    pub const AIR_STEER_MIN: f32 = 0.8;
 }
 
 /// The part of a player's state that movement owns. This is exactly what the
@@ -275,6 +290,7 @@ pub fn move_player(
         // Airborne: cap how much speed can be added toward the wish direction.
         let capped = wish_speed.min(tune::AIR_CAP);
         accelerate(&mut st.vel, wish, capped, tune::AIR_ACCEL, dt);
+        air_steer(&mut st.vel, wish, dt);
         st.vel.y -= tune::GRAVITY * dt;
         if st.vel.y < -tune::MAX_FALL { st.vel.y = -tune::MAX_FALL; }
     }
@@ -313,7 +329,29 @@ pub fn move_player(
 
     // Ground probe. Doing this after the move keeps `grounded` consistent with
     // the position we actually ended at.
-    let (grounded, ground_brush) = probe_ground(st, world);
+    let (mut grounded, mut ground_brush) = probe_ground(st, world);
+
+    // Step down off a ledge no taller than one we could step up.
+    //
+    // Without this, walking *down* a staircase is a series of small falls: the
+    // player leaves each tread, becomes airborne for a few frames, loses
+    // ground friction and footstep cadence, and lands on the next one. It
+    // reads as bouncing down the stairs, and it is why they were as awkward
+    // going down as they were going up. Snapping onto the surface below keeps
+    // the descent continuous, and the height limit is the same `STEP_HEIGHT`
+    // that governs the climb, so the two stay symmetrical.
+    //
+    // It runs only when the player has actually left the floor they were on.
+    // Applying it to a grounded mover as well pulls players who are partway up
+    // a step back down onto the tread below, which cost the navigation graph
+    // three hundred rising links and doubled the number of staircases the
+    // route walker wedged on.
+    if was_grounded && !grounded && !ev.jumped {
+        snap_to_ground(st, world);
+        let probed = probe_ground(st, world);
+        grounded = probed.0;
+        ground_brush = probed.1;
+    }
     st.grounded = grounded;
     st.ground_brush = ground_brush;
     if grounded && st.vel.y < 0.0 { st.vel.y = 0.0; }
@@ -361,6 +399,37 @@ fn accelerate(vel: &mut Vec3, wish: Vec3, wish_speed: f32, accel: f32, dt: f32) 
     let mut accel_speed = accel * wish_speed * dt;
     if accel_speed > add { accel_speed = add; }
     *vel += wish * accel_speed;
+}
+
+/// Turns an airborne player's horizontal velocity toward where they are
+/// steering, without changing how fast they are going.
+///
+/// Speed is preserved exactly, so this cannot be used to build speed the way
+/// air acceleration can; it only decides which way the momentum points. The
+/// rotation is capped per second rather than applied as a blend, so the turn
+/// rate is the same whether the player is drifting or falling at terminal
+/// velocity.
+#[inline]
+fn air_steer(vel: &mut Vec3, wish: Vec3, dt: f32) {
+    let horiz = Vec3::new(vel.x, 0.0, vel.z);
+    let speed = horiz.length();
+    if speed < tune::AIR_STEER_MIN { return; }
+    let want = Vec3::new(wish.x, 0.0, wish.z);
+    let want_len = want.length();
+    if want_len < 0.01 { return; }
+    let (dir, target) = (horiz / speed, want / want_len);
+    let dot = dir.dot(target).clamp(-1.0, 1.0);
+    let angle = dot.acos();
+    let step = (tune::AIR_STEER * dt).min(angle);
+    if step < 1e-5 { return; }
+    // The component of the target perpendicular to the current heading. At a
+    // dead 180 there is none, so a player holding straight back keeps going
+    // until a sideways press gives the turn something to rotate about.
+    let perp = (target - dir * dot).normalize_or_zero();
+    if perp == Vec3::ZERO { return; }
+    let turned = dir * step.cos() + perp * step.sin();
+    vel.x = turned.x * speed;
+    vel.z = turned.z * speed;
 }
 
 /// True if the player could stand up to `height` where they are.
@@ -426,6 +495,10 @@ fn slide_move(st: &mut MoveState, world: &CollisionWorld, dt: f32) -> f32 {
 /// step, and far too small to fit through anything.
 const STEP_SKIN: f32 = 0.02;
 
+/// How far ahead the step-across trace looks, however little motion is left in
+/// the frame. A shade under half a stair tread.
+const STEP_PROBE: f32 = 0.12;
+
 /// Attempts to walk up a ledge no taller than `STEP_HEIGHT`.
 ///
 /// Lift, move across, drop back down. Accepting the step only when the mover
@@ -436,7 +509,8 @@ fn try_step_up(st: &mut MoveState, world: &CollisionWorld, remaining: &mut Vec3)
     if !st.grounded && st.vel.y > 0.5 { return false; }
 
     let horiz = Vec3::new(remaining.x, 0.0, remaining.z);
-    if horiz.length_squared() < 1e-8 { return false; }
+    let horiz_len = horiz.length();
+    if horiz_len < 1e-4 { return false; }
 
     let saved_pos = st.pos;
 
@@ -455,12 +529,24 @@ fn try_step_up(st: &mut MoveState, world: &CollisionWorld, remaining: &mut Vec3)
     st.pos.y += lift;
 
     // 2. Move across at the raised height.
-    let across = world.trace_box(&slim(st), horiz, TraceMask::Solid);
-    let gained = horiz * across.fraction;
-    if gained.length_squared() < 1e-6 {
+    //
+    // The trace probes at least `STEP_PROBE` ahead even when barely any motion
+    // is left, but the mover is only ever advanced by the motion it actually
+    // had. A player walking into a riser usually arrives with a millimetre of
+    // the frame's movement left over, and testing only that millimetre says
+    // nothing about whether the tread is clear - so the step was refused, the
+    // velocity was clipped against the riser, and the player stopped dead for
+    // a frame before starting again. On a staircase that happens on every
+    // tread, which is what made stairs feel like walking through treacle.
+    let dir = horiz / horiz_len;
+    let probe = dir * horiz_len.max(STEP_PROBE);
+    let across = world.trace_box(&slim(st), probe, TraceMask::Solid);
+    let advance = (probe.length() * across.fraction).min(horiz_len);
+    if advance < 1e-4 {
         st.pos = saved_pos;
         return false;
     }
+    let gained = dir * advance;
     st.pos += gained;
 
     // 3. Settle back down onto whatever is under us, leaving the same two
@@ -468,24 +554,35 @@ fn try_step_up(st: &mut MoveState, world: &CollisionWorld, remaining: &mut Vec3)
     //
     // Without it the mover comes to rest exactly flush on the tread it just
     // climbed, and the full-width validation below - which is a strict overlap
-    // test - decides the destination is blocked and refuses the step. Every
-    // frame, on every staircase in the game: the player walks into the riser,
-    // the step is computed correctly, and then thrown away for want of a
-    // rounding margin.
+    // test - decides the destination is blocked and refuses the step.
+    //
+    // The surface is found with the same downward query the ground probe uses
+    // rather than a swept box, and at the player's real width. A swept box has
+    // to be narrower than the player to get up a staircase built against a
+    // wall, and a mover that has crossed the lip of a tread by less than that
+    // margin then lands beside the tread instead of on it - two centimetres
+    // inside the riser, where the full-width check refuses the step. That is
+    // frame-rate dependent, because the distance a mover crosses the lip by is
+    // whatever was left of its motion when it reached the riser: at 60 Hz it
+    // clears the margin and climbs, and at 144 it does not. Walking into a
+    // staircase at an angle on a fast machine, the player slid along the
+    // bottom step for as long as they held the key. A downward surface query
+    // does not care how much of the box is over the tread, so the step lands
+    // where the mover actually is.
     let drop = lift + 0.02;
-    let down = world.trace_box(&slim(st), Vec3::NEG_Y * drop, TraceMask::Solid);
-    st.pos.y -= drop * down.fraction;
-    if down.hit { st.pos.y += 0.002; }
-
-    // Refuse the step if we ended up on a surface too steep to stand on, or
-    // hanging in the air when we started grounded.
-    if down.hit && down.normal.y < 0.5 {
-        st.pos = saved_pos;
-        return false;
-    }
-    if st.grounded && !down.hit {
-        st.pos = saved_pos;
-        return false;
+    let feet_y = st.pos.y;
+    match world.ground_below(st.pos + Vec3::Y * 0.02, tune::RADIUS, drop) {
+        Some((h, _)) if h <= feet_y + 0.02 => st.pos.y = h + 0.002,
+        // Nothing underneath. Walking, that means the step led off a ledge and
+        // is refused; falling, the mover is allowed to clear the lip and keep
+        // dropping, which is what lets a player scramble onto a low roof.
+        _ => {
+            if st.grounded {
+                st.pos = saved_pos;
+                return false;
+            }
+            st.pos.y = feet_y - drop;
+        }
     }
     if world.box_blocked(&st.body(), TraceMask::Solid) {
         st.pos = saved_pos;
@@ -542,14 +639,24 @@ fn probe_ground(st: &MoveState, world: &CollisionWorld) -> (bool, u32) {
 }
 
 /// Snaps the player down onto the surface when they walk off a small lip,
-/// so running over a kerb does not launch them into a fall.
+/// so running over a kerb - or down a staircase - does not launch them into a
+/// fall.
 pub fn snap_to_ground(st: &mut MoveState, world: &CollisionWorld) {
-    if !st.grounded || st.vel.y > 0.1 { return; }
-    if let Some((h, _)) = world.ground_below(st.pos + Vec3::Y * 0.02, tune::RADIUS, tune::STEP_HEIGHT) {
-        if st.pos.y - h > 0.0 && st.pos.y - h <= tune::STEP_HEIGHT {
-            st.pos.y = h;
-        }
-    }
+    if st.vel.y > 0.1 { return; }
+    let feet = st.pos + Vec3::Y * 0.02;
+    let Some((h, brush)) = world.ground_below(feet, tune::RADIUS, tune::STEP_HEIGHT + 0.02) else { return };
+    let drop = st.pos.y - h;
+    // Already standing on it, or too far down to be a step.
+    if drop <= 0.02 || drop > tune::STEP_HEIGHT { return; }
+    // Never snap into something. The narrow box is the same one the step-up
+    // path uses, for the same reason: a staircase built hard against a wall
+    // must not refuse the last centimetre.
+    let landed = Aabb::from_base(Vec3::new(st.pos.x, h, st.pos.z),
+                                 tune::RADIUS - STEP_SKIN, st.height);
+    if world.box_blocked(&landed, TraceMask::Solid) { return; }
+    st.pos.y = h;
+    st.vel.y = 0.0;
+    st.ground_brush = brush;
 }
 
 /// Keeps a player inside the playable volume. The server calls this after
@@ -681,3 +788,80 @@ pub const MAX_ENGAGE_RANGE: f32 = 160.0;
 // Navigation assumes bots can climb `nav::STEP_UP`; the mover must be at
 // least that capable or bots will walk into ledges the graph says are fine.
 const _: () = assert!(tune::STEP_HEIGHT >= nav::STEP_UP);
+
+#[cfg(test)]
+mod stair_tests {
+    use super::*;
+    use crate::game::types::{Buttons, InputCmd, Stance};
+    use crate::maps::brush::RampAxis;
+    use crate::maps::build::MapBuilder;
+    use crate::maps::MapId;
+    use crate::assets::materials::Mat;
+
+    /// Walks a player up a plain staircase and reports how much of their
+    /// ground speed survives the climb.
+    ///
+    /// Every frame spent stopped against a riser is speed the player can feel
+    /// going missing, and it is entirely a function of the tick rate: the
+    /// faster the client runs, the less of the frame's motion is left over
+    /// when it reaches the riser, and the less there is for the step-up to
+    /// work with. That is why stairs felt worse the better the machine was.
+    fn climb_fraction(hz: f32, angle_deg: f32) -> f32 {
+        let mut b = MapBuilder::new(MapId::Junction);
+        b.floor(-24.0, -8.0, 48.0, 16.0, 0.0, Mat::Concrete);
+        b.stairs(-24.0, 0.0, 0.0, 48.0, 8.0, 4.0, RampAxis::PosZ, Mat::Concrete);
+        b.floor(-24.0, 8.0, 48.0, 8.0, 4.0, Mat::Concrete);
+        let map = b.finish();
+
+        let mods = MoveMods {
+            weapon_scale: 1.0, ads_scale: 1.0, perk_scale: 1.0,
+            block_sprint: false, want_ads: false, ads_time: 0.25,
+        };
+        let dt = 1.0 / hz;
+        let yaw = crate::math::angles_from_dir(
+            Vec3::new(angle_deg.to_radians().sin(), 0.0, angle_deg.to_radians().cos())).0;
+
+        let mut st = MoveState::default();
+        st.pos = Vec3::new(0.0, 0.0, -3.0);
+        st.height = Stance::Stand.height();
+        st.stance = Stance::Stand;
+        st.grounded = true;
+
+        // Run up to the foot of the stairs first, so the climb is measured
+        // from a mover already at full speed.
+        let cmd = InputCmd { seq: 0, dt_ms: 16, move_f: 127, move_r: 0,
+                             yaw, pitch: 0.0, buttons: Buttons::empty(), weapon: 0xFF };
+        for _ in 0..(hz as usize) {
+            move_player(&mut st, &cmd, &mods, &map.collision, dt);
+            if st.pos.z > -0.2 { break; }
+        }
+        let flat_speed = st.horizontal_speed();
+        assert!(flat_speed > 5.0, "did not reach the stairs at speed: {flat_speed}");
+
+        let start = st.pos;
+        let mut ticks = 0usize;
+        while st.pos.y < 3.9 && ticks < (hz as usize * 8) {
+            move_player(&mut st, &cmd, &mods, &map.collision, dt);
+            ticks += 1;
+            if std::env::var_os("HP_TRACE").is_some() && ticks % 20 == 0 {
+                println!("  {hz}Hz/{angle_deg} t{ticks} ({:.2},{:.2},{:.2}) g{}", st.pos.x, st.pos.y, st.pos.z, st.grounded);
+            }
+        }
+        assert!(st.pos.y >= 3.9, "never reached the top: y={:.2} after {ticks} ticks", st.pos.y);
+        let travelled = (st.pos.z - start.z).abs();
+        let elapsed = ticks as f32 * dt;
+        (travelled / elapsed) / flat_speed
+    }
+
+    #[test]
+    fn stairs_do_not_eat_the_players_speed() {
+        for hz in [60.0, 144.0, 240.0] {
+            for angle in [0.0, 20.0] {
+                let f = climb_fraction(hz, angle);
+                assert!(f > 0.80,
+                        "at {hz} Hz approaching {angle} degrees off square, only {:.0}% of \
+                         walking speed survives the staircase", f * 100.0);
+            }
+        }
+    }
+}
