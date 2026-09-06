@@ -374,6 +374,27 @@ impl App {
                         }
                     }
                 }
+                GameEvent::RoundReset => {
+                    if let Some(map) = self.map.as_mut() {
+                        map.collision.reset_destruction();
+                        self.renderer.set_destroyed(&map.collision.destroyed);
+                    }
+                }
+                GameEvent::BrushBroken { brush, pos, surface } => {
+                    // The client's own collision copy has to agree, or the
+                    // prediction keeps walking into cover that is no longer
+                    // there and the server keeps correcting it.
+                    if let Some(map) = self.map.as_mut() {
+                        map.collision.destroy(brush);
+                        self.renderer.set_destroyed(&map.collision.destroyed);
+                    }
+                    self.effects.debris_burst(pos, surface);
+                    if let Some(bank) = self.audio.bank.clone() {
+                        let v = self.audio.random_variant(3);
+                        self.audio.play_at(bank.impact(surface, v), pos, 1.0, 0.72);
+                        self.audio.play_at(bank.impact(surface, (v + 1) % 3), pos, 0.8, 1.35);
+                    }
+                }
                 GameEvent::HitPlayer { attacker, victim, pos, zone, damage, lethal } => {
                     let dir = if victim == me { (pos - my_pos).normalize_or_zero() } else { Vec3::Y };
                     self.effects.blood(pos, dir);

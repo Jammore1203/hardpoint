@@ -627,6 +627,8 @@ fn event_name(e: &crate::game::events::GameEvent) -> &'static str {
     match e {
         G::Shot { .. } => "Shot",
         G::Impact { .. } => "Impact",
+        G::BrushBroken { .. } => "BrushBroken",
+        G::RoundReset => "RoundReset",
         G::HitPlayer { .. } => "HitPlayer",
         G::Kill { .. } => "Kill",
         G::Melee { .. } => "Melee",

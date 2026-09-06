@@ -678,6 +678,12 @@ pub fn encode_event(w: &mut Writer, e: &GameEvent) -> bool {
         BombDefused { by } => { w.u8(25); w.u8(*by); }
         BombExploded { site } => { w.u8(26); w.u8(*site); }
         BombPickedUp { by } => { w.u8(27); w.u8(*by); }
+        RoundReset => { w.u8(30); }
+        BrushBroken { brush, pos, surface } => {
+            w.u8(29); w.u32(*brush);
+            w.i16(quantize_pos(pos.x)); w.i16(quantize_pos(pos.y)); w.i16(quantize_pos(pos.z));
+            w.u8(surface.index() as u8);
+        }
         BombDropped { pos } => {
             w.u8(28);
             w.i16(quantize_pos(pos.x)); w.i16(quantize_pos(pos.y)); w.i16(quantize_pos(pos.z));
@@ -741,6 +747,8 @@ pub fn decode_event(r: &mut Reader) -> Option<GameEvent> {
         20 => PickupRespawned { index: r.u16()? },
         21 => ShellLoaded { player: r.u8()? },
         22 => CapturePoint { point: r.u8()?, team: Team::from_u8(r.u8()?), contested: r.bool()? },
+        29 => BrushBroken { brush: r.u32()?, pos: read_pos(r)?, surface: surface_from(r.u8()?) },
+        30 => RoundReset,
         23 => CaptureProgress { point: r.u8()?, team: Team::from_u8(r.u8()?), progress: r.u8()? },
         24 => BombPlanted { site: r.u8()?, by: r.u8()? },
         25 => BombDefused { by: r.u8()? },

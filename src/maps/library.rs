@@ -471,6 +471,15 @@ fn ironveil(b: &mut MapBuilder) {
     b.decor(-23.0, 1.6, -1.0, 3.0, 0.5, 10.0, Mat::HullPainted);
     step_up(b, -20.0, 0.05, -5.1, 2.0, 3.0, 3.45, RampAxis::NegX, Mat::MetalPlateDiamond);
 
+    // --- Breakable panels: shortcuts that have to be made before they exist.
+    b.breakable_wall_z(-9.0, 0.05, -3.0, 6.0, 3.2, 260.0, Mat::Corrugated);
+    b.breakable_wall_z(9.0, 0.05, -3.0, 6.0, 3.2, 260.0, Mat::Corrugated);
+    b.breakable_wall_x(-30.0, 0.05, -15.0, 6.0, 3.2, 320.0, Mat::Cinderblock);
+    b.breakable_wall_x(24.0, 0.05, 15.0, 6.0, 3.2, 320.0, Mat::Cinderblock);
+    for (x, z) in [(-22.0f32, -25.0f32), (22.0, 25.0)] {
+        b.breakable(x - 1.6, 0.05, z - 1.6, 3.2, 2.6, 3.2, 180.0, Mat::WoodCrate);
+    }
+
     // --- Quadrant walls: the apron either side of the strip was as long a
     //     run as the strip itself, just at ninety degrees to it.
     b.divider(-8.0, 0.0, -20.0, 26.0, 4.4, true, 7.0, Mat::Cinderblock);
@@ -631,6 +640,11 @@ fn stormworks(b: &mut MapBuilder) {
             b.boxx(x, 0.0, *z, 8.0, 2.9, 3.6, Mat::MetalPanel).with_scale(2.6).with_top(Mat::WoodCrate);
             x += 20.0;
         }
+    }
+
+    // --- Breakable stock: shooting it out opens a lane through the racking.
+    for (x, z) in [(-24.0f32, 3.0f32), (4.0, -21.0), (18.0, 15.0), (-10.0, -33.0)] {
+        b.breakable(x, 0.0, z, 4.0, 4.2, 6.0, 260.0, Mat::WoodCrate);
     }
 
     // --- Mid: a boxed-in floor the whole hall can reach and nobody can see
@@ -1303,6 +1317,12 @@ fn highrise(b: &mut MapBuilder) {
     b.access_stair(-12.0, -24.0, py, 0.0, true, true, Mat::ConcreteFloor);
     b.access_stair(-5.0, 6.0, py, 0.0, true, false, Mat::ConcreteFloor);
     b.access_stair(-12.0, 24.0, py, 0.0, true, false, Mat::ConcreteFloor);
+
+    // --- Breakable partitions in the courtyard walls.
+    b.breakable_wall_x(-16.0, 0.0, -22.0, 5.0, 3.4, 300.0, Mat::Cinderblock);
+    b.breakable_wall_x(7.0, 0.0, 21.0, 5.0, 3.4, 300.0, Mat::Cinderblock);
+    b.breakable_wall_z(-22.0, 0.0, -16.0, 5.0, 3.4, 300.0, Mat::Cinderblock);
+    b.breakable_wall_z(22.0, 0.0, 6.0, 5.0, 3.4, 300.0, Mat::Cinderblock);
 
     // --- Mid-block shops, one to a side.
     //

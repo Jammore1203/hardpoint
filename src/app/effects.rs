@@ -112,6 +112,58 @@ impl Effects {
     // ---------------------------------------------------------- emitters
 
     /// A round striking the world.
+    /// A piece of the level coming apart: chunks, dust and a shockwave puff.
+    ///
+    /// Much heavier than a bullet impact on purpose. A wall disappearing is a
+    /// change to the map that everyone nearby needs to notice, and a handful
+    /// of sparks would read as another ricochet.
+    pub fn debris_burst(&mut self, pos: Vec3, surface: Surface) {
+        let (color, _, _) = surface_look(surface);
+        for _ in 0..self.count(34) {
+            let dir = self.random_unit();
+            let speed = self.rng.range(2.0, 11.0);
+            let p = Particle {
+                pos: pos + dir * self.rng.range(0.1, 0.9),
+                vel: dir * speed + Vec3::Y * self.rng.range(1.0, 5.0),
+                life: 0.0,
+                max_life: self.rng.range(0.5, 1.4),
+                size_start: self.rng.range(0.05, 0.22),
+                size_end: 0.02,
+                color_start: color,
+                color_end: [color[0], color[1], color[2], 0.0],
+                rot: self.rng.range(0.0, 6.28),
+                spin: self.rng.signed() * 9.0,
+                gravity: 16.0,
+                drag: 0.9,
+                sprite: Sprite::Dust,
+                ground: false,
+                collides: true,
+            };
+            self.spawn(p);
+        }
+        for _ in 0..self.count(14) {
+            let dir = self.random_unit();
+            let p = Particle {
+                pos: pos + dir * self.rng.range(0.1, 1.2),
+                vel: dir * self.rng.range(0.5, 2.5) + Vec3::Y * 0.8,
+                life: 0.0,
+                max_life: self.rng.range(0.9, 2.0),
+                size_start: self.rng.range(0.5, 1.1),
+                size_end: self.rng.range(1.8, 3.0),
+                color_start: [color[0] * 1.1, color[1] * 1.1, color[2] * 1.1, 0.55],
+                color_end: [color[0], color[1], color[2], 0.0],
+                rot: self.rng.range(0.0, 6.28),
+                spin: self.rng.signed() * 0.7,
+                gravity: -0.4,
+                drag: 1.6,
+                sprite: Sprite::Smoke,
+                ground: false,
+                collides: false,
+            };
+            self.spawn(p);
+        }
+    }
+
     pub fn bullet_impact(&mut self, pos: Vec3, normal: Vec3, surface: Surface) {
         let (color, sparks, dust) = surface_look(surface);
 

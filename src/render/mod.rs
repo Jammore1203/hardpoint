@@ -12,7 +12,7 @@ use crate::assets::font::{FontAtlas, ATLAS_H, ATLAS_W};
 use crate::assets::meshgen::{self, MapMesh, PartInstance, PartVertex, WorldVertex};
 use crate::assets::texgen::{self, Sprite, TextureArray};
 use crate::maps::Env;
-use crate::math::Frustum;
+use crate::math::{Aabb, Frustum};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use gpu::{DynBuffer, Gpu, SceneTargets, DEPTH_FORMAT, SCENE_FORMAT};
@@ -224,6 +224,9 @@ pub fn reverse_z_perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> Ma
 
 /// The GPU-side copy of one map's geometry.
 pub struct MapGpu {
+    /// `(brush, index range, bounds)` for each breakable, drawn one by one so
+    /// a destroyed brush is simply a range that is not submitted.
+    pub breakables: Vec<(u32, std::ops::Range<u32>, Aabb)>,
     vertex: wgpu::Buffer,
     index: wgpu::Buffer,
     clusters: Vec<meshgen::Cluster>,
@@ -279,6 +282,8 @@ pub struct Renderer {
     pub stats: RenderStats,
     texture_bytes: usize,
     texture_size: u32,
+    /// Mirror of the collision world's destruction set, for culling draws.
+    destroyed: Vec<bool>,
 
     /// Set to have the next frame copied back to system memory.
     pub capture_request: bool,
@@ -413,6 +418,7 @@ impl Renderer {
             stats: RenderStats::default(),
             texture_bytes,
             texture_size,
+            destroyed: Vec::new(),
             capture_request: false,
             captured: None,
             capture: None,
@@ -576,6 +582,7 @@ impl Renderer {
         let index = create_buffer(&self.gpu.device, "map indices", bytemuck::cast_slice(&mesh.indices), wgpu::BufferUsages::INDEX);
         let bytes = mesh.vertices.len() * std::mem::size_of::<WorldVertex>() + mesh.indices.len() * 4;
         self.map = Some(MapGpu {
+            breakables: mesh.breakables.clone(),
             vertex,
             index,
             clusters: mesh.clusters.clone(),
@@ -584,7 +591,16 @@ impl Renderer {
         });
     }
 
-    pub fn clear_map(&mut self) { self.map = None; }
+    pub fn clear_map(&mut self) { self.map = None; self.destroyed.clear(); }
+
+    /// Tells the renderer which brushes have been shot away.
+    pub fn set_destroyed(&mut self, destroyed: &[bool]) {
+        if self.destroyed.len() != destroyed.len() {
+            self.destroyed = destroyed.to_vec();
+        } else {
+            self.destroyed.copy_from_slice(destroyed);
+        }
+    }
 
     /// A painter over this frame's interface vertex stream.
     pub fn painter(&mut self) -> crate::ui::draw::Painter<'_> {
@@ -745,6 +761,17 @@ impl Renderer {
                     self.stats.clusters_drawn += 1;
                     self.stats.triangles += (c.opaque.end - c.opaque.start) / 3;
                 }
+                // Breakables, each its own draw so one can vanish.
+                if !map.breakables.is_empty() {
+                    for (brush, range, bounds) in &map.breakables {
+                        if self.destroyed.get(*brush as usize).copied().unwrap_or(false) { continue; }
+                        if !frustum.test_aabb(bounds) { continue; }
+                        rp.draw_indexed(range.clone(), 0, 0..1);
+                        self.stats.draw_calls += 1;
+                        self.stats.triangles += (range.end - range.start) / 3;
+                    }
+                }
+
                 rp.set_pipeline(&self.pipe_world_cutout);
                 for c in &map.clusters {
                     if c.cutout.is_empty() { continue; }

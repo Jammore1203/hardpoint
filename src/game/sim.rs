@@ -67,6 +67,9 @@ pub struct World {
     pub fires: Vec<Fire>,
     pub pickups: Vec<PickupInstance>,
     pub events: EventQueue,
+    /// Remaining health of every brush, for the breakable ones. Round state,
+    /// not map state: the map is shared and reused between rounds.
+    pub brush_health: Vec<f32>,
 
     pub time: f64,
     pub tick: u32,
@@ -106,6 +109,7 @@ impl World {
         let players = (0..MAX_PLAYERS).map(|i| Player::new(i as u8)).collect();
 
         World {
+            brush_health: map.collision.brushes.iter().map(|b| b.health).collect(),
             map, map_id, players,
             grenades: Vec::with_capacity(32),
             smokes: Vec::with_capacity(8),
@@ -311,6 +315,24 @@ impl World {
         self.time - delay.clamp(0.0, MAX_REWIND)
     }
 
+    /// Applies damage to a breakable brush, destroying it when it runs out.
+    ///
+    /// Health lives on the simulation rather than on the map, because the map
+    /// is shared, immutable and reused between rounds; this is round state.
+    pub fn damage_brush(&mut self, brush: u32, damage: f32, pos: Vec3, surface: Surface) {
+        let Some(b) = self.map.collision.brushes.get(brush as usize) else { return };
+        if !b.is_breakable() || self.map.collision.is_destroyed(brush) { return; }
+        let i = brush as usize;
+        if self.brush_health.len() != self.map.collision.brushes.len() {
+            self.brush_health = self.map.collision.brushes.iter().map(|b| b.health).collect();
+        }
+        self.brush_health[i] -= damage;
+        if self.brush_health[i] > 0.0 { return; }
+        if self.map.collision.destroy(brush) {
+            self.events.push(GameEvent::BrushBroken { brush, pos, surface });
+        }
+    }
+
     /// Resolves one shot: spread, trace, penetration, damage, effects.
     pub fn fire_weapon(&mut self, slot: u8, seq: u32, shot_index: u8) {
         let (origin, base_dir, def, cone, weapon_id) = {
@@ -403,6 +425,12 @@ impl World {
                     pos: world_hit.point, normal: world_hit.normal, surface, kind,
                 });
             }
+
+            // Breakable geometry takes the hit. Cover that can be removed is
+            // what stops a strong position being a permanent one, and it is
+            // the only thing on these maps that changes shape during a round.
+            let brush_damage = def.damage_at(distance_to(origin, world_hit.point)) * damage_scale;
+            self.damage_brush(world_hit.brush, brush_damage, world_hit.point, surface);
 
             // Can the round get through?
             let brush = match self.map.collision.brushes.get(world_hit.brush as usize) {
@@ -948,5 +976,54 @@ fn surface_hardness(s: Surface) -> f32 {
         Surface::Gravel => 2.6,
         Surface::Concrete => 3.0,
         Surface::Water => 0.4,
+    }
+}
+
+
+#[inline]
+fn distance_to(a: Vec3, b: Vec3) -> f32 { (b - a).length() }
+
+#[cfg(test)]
+mod breakable_tests {
+    use super::*;
+    use crate::maps::brush::TraceMask;
+
+    /// A breakable brush absorbs damage, disappears when it runs out, stops
+    /// blocking movement and bullets, and comes back when the round resets.
+    #[test]
+    fn breakables_break_and_come_back() {
+        let mut world = World::new(crate::maps::MapId::Ironveil, 1);
+        let breakable = world.map.collision.brushes.iter().position(|b| b.is_breakable())
+            .expect("Ironveil has breakable geometry");
+
+        let b = world.map.collision.brushes[breakable].clone();
+        let centre = b.aabb.center();
+        let health = b.health;
+        assert!(health > 0.0, "a breakable brush needs health");
+
+        // A ray just long enough to cross this brush and nothing else.
+        let reach = (b.aabb.max.x - b.aabb.min.x) * 0.5 + 0.35;
+        let from = centre - Vec3::X * reach;
+        let to = centre + Vec3::X * reach;
+        assert!(!world.map.collision.line_of_sight(from, to), "intact cover should block");
+
+        // Half its health leaves it standing.
+        world.damage_brush(breakable as u32, health * 0.5, centre, Surface::Concrete);
+        assert!(!world.map.collision.is_destroyed(breakable as u32));
+
+        // The rest takes it out, exactly once.
+        world.damage_brush(breakable as u32, health, centre, Surface::Concrete);
+        assert!(world.map.collision.is_destroyed(breakable as u32));
+        let breaks = world.events.iter()
+            .filter(|e| matches!(e, GameEvent::BrushBroken { .. })).count();
+        assert_eq!(breaks, 1, "breaking is announced once");
+
+        // And it no longer stops anything.
+        assert!(world.map.collision.line_of_sight(from, to), "broken cover should not block");
+        let hit = world.map.collision.trace_ray(from, Vec3::X, reach * 2.0, TraceMask::Solid);
+        assert!(!hit.hit, "movement should pass through a broken brush");
+
+        world.map.collision.reset_destruction();
+        assert!(!world.map.collision.is_destroyed(breakable as u32), "a new round restores cover");
     }
 }

@@ -30,6 +30,9 @@ bitflags_lite! {
         const NONAV        = 1 << 7;
         /// Bright surface; skips ambient occlusion darkening.
         const FULLBRIGHT   = 1 << 8;
+        /// Can be shot away. Carries its own geometry range so destroying it
+        /// costs a skipped draw rather than a rebuilt level.
+        const BREAKABLE    = 1 << 9;
     }
 }
 
@@ -144,6 +147,9 @@ pub struct Brush {
     pub tex_scale: f32,
     /// Multiplied into baked vertex lighting; lets authors darken interiors.
     pub light_scale: f32,
+    /// Damage this brush absorbs before it breaks. Only meaningful with
+    /// `BREAKABLE`; zero elsewhere.
+    pub health: f32,
 }
 
 impl Brush {
@@ -157,11 +163,14 @@ impl Brush {
             faces: FaceMask::ALL,
             tex_scale: 2.0,
             light_scale: 1.0,
+            health: 0.0,
         }
     }
 
     #[inline]
     pub fn is_solid(&self) -> bool { self.flags.contains(BrushFlags::SOLID) }
+    #[inline]
+    pub fn is_breakable(&self) -> bool { self.flags.contains(BrushFlags::BREAKABLE) }
     #[inline]
     pub fn blocks_bullets(&self) -> bool {
         self.flags.contains(BrushFlags::OPAQUE) || self.flags.contains(BrushFlags::BULLET_CLIP)
@@ -361,6 +370,11 @@ pub struct CollisionWorld {
     pub brushes: Vec<Brush>,
     pub grid: BrushGrid,
     pub bounds: Aabb,
+    /// Brushes that have been shot away. Kept as a flat parallel array rather
+    /// than by removing them, so brush indices stay stable: they are the
+    /// identity used by the wire protocol, the rendering ranges and the
+    /// surface-material lookup.
+    pub destroyed: Vec<bool>,
 }
 
 /// What a trace is allowed to collide with.
@@ -384,7 +398,25 @@ impl CollisionWorld {
             bounds = Aabb::new(Vec3::splat(-1.0), Vec3::splat(1.0));
         }
         let grid = BrushGrid::build(&brushes, bounds);
-        CollisionWorld { brushes, grid, bounds }
+        let destroyed = vec![false; brushes.len()];
+        CollisionWorld { brushes, grid, bounds, destroyed }
+    }
+
+    /// Marks a brush destroyed. Returns false if it was already gone.
+    pub fn destroy(&mut self, index: u32) -> bool {
+        let i = index as usize;
+        if i >= self.destroyed.len() || self.destroyed[i] { return false; }
+        self.destroyed[i] = true;
+        true
+    }
+
+    #[inline]
+    pub fn is_destroyed(&self, index: u32) -> bool {
+        self.destroyed.get(index as usize).copied().unwrap_or(false)
+    }
+
+    pub fn reset_destruction(&mut self) {
+        for d in self.destroyed.iter_mut() { *d = false; }
     }
 
     #[inline]
@@ -393,6 +425,13 @@ impl CollisionWorld {
             TraceMask::Solid => b.is_solid(),
             TraceMask::Shot | TraceMask::Projectile => b.blocks_bullets(),
         }
+    }
+
+    /// `passes`, plus the check that the brush still exists.
+    #[inline]
+    fn live(&self, bi: u32, mask: TraceMask) -> bool {
+        if self.is_destroyed(bi) { return false; }
+        self.passes(&self.brushes[bi as usize], mask)
     }
 
     /// Ray trace against level geometry. Returns the nearest hit.
@@ -406,8 +445,8 @@ impl CollisionWorld {
         let mut best_t = max_t;
 
         self.grid.query_ray(origin, dir, max_t, |bi| {
+            if !self.live(bi, mask) { return true; }
             let b = &self.brushes[bi as usize];
-            if !self.passes(b, mask) { return true; }
             // Ramps use their bounding box for shots; the small error is
             // invisible at these polygon sizes and keeps the trace branchless.
             let hit = if b.clips().is_empty() {
@@ -453,8 +492,8 @@ impl CollisionWorld {
         let mut best_b = u32::MAX;
 
         self.grid.query_aabb(&swept, |bi| {
+            if !self.live(bi, mask) { return; }
             let b = &self.brushes[bi as usize];
-            if !self.passes(b, mask) { return; }
             let swept = if b.clips().is_empty() {
                 sweep_aabb(box_at_origin, delta, &b.sweep_box())
             } else {
@@ -487,8 +526,9 @@ impl CollisionWorld {
         let mut hit = false;
         self.grid.query_aabb(b, |bi| {
             if hit { return; }
+            if !self.live(bi, mask) { return; }
             let br = &self.brushes[bi as usize];
-            if !self.passes(br, mask) || !br.sweep_box().overlaps(b) { return; }
+            if !br.sweep_box().overlaps(b) { return; }
             if !br.clips().is_empty() {
                 let c = b.center();
                 let r = b.half();
@@ -516,6 +556,8 @@ impl CollisionWorld {
         let mut ok = true;
         self.grid.query_aabb(&body, |bi| {
             if !ok { return; }
+            if self.is_destroyed(bi) { return; }
+            if self.is_destroyed(bi) { return; }
             let b = &self.brushes[bi as usize];
             if !b.is_solid() { return; }
             // Ramps are height fields, not obstacles; their walkable surface is
@@ -548,6 +590,7 @@ impl CollisionWorld {
         );
         let mut best: Option<(f32, u32)> = None;
         self.grid.query_aabb(&query, |bi| {
+            if self.is_destroyed(bi) { return; }
             let b = &self.brushes[bi as usize];
             if !b.is_solid() { return; }
             if !matches!(b.kind, BrushKind::Ramp(_)) { return; }
@@ -574,6 +617,7 @@ impl CollisionWorld {
         );
         let mut best: Option<(f32, u32)> = None;
         self.grid.query_aabb(&query, |bi| {
+            if self.is_destroyed(bi) { return; }
             let b = &self.brushes[bi as usize];
             if !b.is_solid() { return; }
             if feet.x < b.aabb.min.x - radius || feet.x > b.aabb.max.x + radius { return; }

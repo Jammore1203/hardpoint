@@ -50,6 +50,14 @@ pub enum GameEvent {
         surface: Surface,
         kind: ImpactKind,
     },
+    /// Every breakable is whole again, at the start of a round.
+    RoundReset,
+    /// A breakable piece of the level was shot away.
+    BrushBroken {
+        brush: u32,
+        pos: Vec3,
+        surface: Surface,
+    },
     /// A round struck a player. Sent to the shooter for the hit marker and to
     /// everyone nearby for the blood effect.
     HitPlayer {
@@ -197,6 +205,7 @@ impl GameEvent {
         match self {
             Shot { origin, .. } => Some(*origin),
             Impact { pos, .. } => Some(*pos),
+            BrushBroken { pos, .. } => Some(*pos),
             HitPlayer { pos, .. } => Some(*pos),
             GrenadeThrown { pos, .. } => Some(*pos),
             GrenadeBounce { pos, .. } => Some(*pos),
@@ -218,7 +227,11 @@ impl GameEvent {
             | BombExploded { .. } | BombPickedUp { .. } | BombDropped { .. }
             | MatchState { .. } | RoundStart { .. } | RoundEnd { .. } | ScoreChanged { .. }
             | Announce { .. } | Chat { .. } | PlayerJoined { .. } | PlayerLeft { .. }
-            | TeamChanged { .. } | PickupTaken { .. } => Delivery::Reliable,
+            | TeamChanged { .. } | PickupTaken { .. }
+            // Destruction has to be reliable and global: a client that misses
+            // it keeps colliding with cover that is no longer there, and no
+            // later packet would ever tell it otherwise.
+            | BrushBroken { .. } | RoundReset => Delivery::Reliable,
             _ => Delivery::Unreliable,
         }
     }

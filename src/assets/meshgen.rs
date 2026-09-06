@@ -42,6 +42,10 @@ pub struct MapMesh {
     pub clusters: Vec<Cluster>,
     pub bounds: Aabb,
     pub triangle_count: usize,
+    /// `(brush index, index range, bounds)` for every breakable brush, drawn
+    /// separately from the clusters so one can be dropped from the frame
+    /// without touching the buffers.
+    pub breakables: Vec<(u32, std::ops::Range<u32>, Aabb)>,
 }
 
 /// How much work the lighting bake does.
@@ -76,6 +80,9 @@ const FACES: [(usize, bool, u8); 6] = [
 ];
 
 struct Face {
+    /// Index into `map.brushes`, or `u32::MAX` for decor. Breakable brushes
+    /// need their triangles addressable at draw time.
+    brush: u32,
     corners: [Vec3; 4],
     normal: Vec3,
     uvs: [[f32; 2]; 4],
@@ -88,8 +95,9 @@ struct Face {
 pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
     let mut faces: Vec<Face> = Vec::with_capacity(map.brushes.len() * 4);
 
-    for list in [&map.brushes, &map.decor] {
-        for b in list.iter() {
+    for (list_index, list) in [&map.brushes, &map.decor].into_iter().enumerate() {
+        for (brush_index, b) in list.iter().enumerate() {
+            let current_brush = if list_index == 0 { brush_index as u32 } else { u32::MAX };
             if b.flags.contains(BrushFlags::NODRAW) { continue; }
             let cutout = b.flags.contains(BrushFlags::CUTOUT) || b.mat.is_cutout();
             let no_shadow = b.flags.contains(BrushFlags::NOSHADOW);
@@ -100,7 +108,7 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                         let (corners, normal) = box_face(&b.aabb, axis, positive);
                         let mat = if axis == 1 && positive { b.top } else { b.mat };
                         let uvs = plane_uvs(&corners, axis, b.tex_scale);
-                        faces.push(Face { corners, normal, uvs, mat, light_scale: b.light_scale, cutout, no_shadow });
+                        faces.push(Face { brush: current_brush, corners, normal, uvs, mat, light_scale: b.light_scale, cutout, no_shadow });
                     }
                 }
                 BrushKind::Clipped(clips) => {
@@ -116,11 +124,11 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
 
                     if b.faces.has(FaceMask::POS_Y) {
                         let c: Vec<Vec3> = poly.iter().map(|p| Vec3::new(p.x, y1, p.y)).collect();
-                        push_fan(&mut faces, &c, Vec3::Y, b, b.top, false, cutout, no_shadow);
+                        push_fan(&mut faces, current_brush, &c, Vec3::Y, b, b.top, cutout, no_shadow);
                     }
                     if b.faces.has(FaceMask::NEG_Y) {
                         let c: Vec<Vec3> = poly.iter().rev().map(|p| Vec3::new(p.x, y0, p.y)).collect();
-                        push_fan(&mut faces, &c, Vec3::NEG_Y, b, b.mat, true, cutout, no_shadow);
+                        push_fan(&mut faces, current_brush, &c, Vec3::NEG_Y, b, b.mat, cutout, no_shadow);
                     }
                     for i in 0..poly.len() {
                         let a = poly[i];
@@ -136,7 +144,7 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                             Vec3::new(a.x, y1, a.y),
                         ];
                         let uvs = side_uvs(&corners, b.tex_scale);
-                        faces.push(Face { corners, normal: n, uvs, mat: b.mat,
+                        faces.push(Face { brush: current_brush, corners, normal: n, uvs, mat: b.mat,
                                           light_scale: b.light_scale, cutout, no_shadow });
                     }
                 }
@@ -144,7 +152,7 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                     // Sloped top plus the four sides beneath it.
                     let (c, n) = ramp_top(&b.aabb, ax);
                     let uvs = plane_uvs(&c, 1, b.tex_scale);
-                    faces.push(Face { corners: c, normal: n, uvs, mat: b.top, light_scale: b.light_scale, cutout, no_shadow });
+                    faces.push(Face { brush: current_brush, corners: c, normal: n, uvs, mat: b.top, light_scale: b.light_scale, cutout, no_shadow });
                     for &(axis, positive, bit) in &FACES {
                         if axis == 1 && positive { continue; }
                         if !b.faces.has(bit) { continue; }
@@ -156,7 +164,7 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                             }
                         }
                         let uvs = plane_uvs(&corners, axis, b.tex_scale);
-                        faces.push(Face { corners, normal, uvs, mat: b.mat, light_scale: b.light_scale, cutout, no_shadow });
+                        faces.push(Face { brush: current_brush, corners, normal, uvs, mat: b.mat, light_scale: b.light_scale, cutout, no_shadow });
                     }
                 }
             }
@@ -301,8 +309,16 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
     let mut cutout_by_cell: Vec<Vec<u32>> = vec![Vec::new(); cell_count];
     let mut cell_bounds: Vec<Aabb> = vec![Aabb::EMPTY; cell_count];
 
+    // Breakable brushes are collected separately: their triangles need to be
+    // addressable by brush at draw time, and a cluster is addressable only as
+    // a whole.
+    let breakable_brush: Vec<bool> = map.brushes.iter().map(|b| b.is_breakable()).collect();
+    let mut break_tris: std::collections::BTreeMap<u32, (Vec<u32>, Aabb)> = Default::default();
+
     for (fi, base, nu, nv) in grids {
         let f = &faces[fi];
+        let breakable = (f.brush as usize) < breakable_brush.len()
+            && breakable_brush[f.brush as usize];
         let stride = (nu + 1) as u32;
         for iv in 0..nv {
             for iu in 0..nu {
@@ -322,6 +338,14 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                 let ci = cz * cells_x + cx;
                 for v in [v00, v10, v01, v11] {
                     cell_bounds[ci].union_point(Vec3::from(vertices[v as usize].pos));
+                }
+                if breakable {
+                    let e = break_tris.entry(f.brush).or_insert_with(|| (Vec::new(), Aabb::EMPTY));
+                    for v in [v00, v10, v01, v11] {
+                        e.1.union_point(Vec3::from(vertices[v as usize].pos));
+                    }
+                    e.0.extend_from_slice(&[v00, v10, v11, v00, v11, v01]);
+                    continue;
                 }
                 let list = if f.cutout { &mut cutout_by_cell[ci] } else { &mut opaque_by_cell[ci] };
                 // Two triangles, wound counter-clockwise seen from the front.
@@ -346,8 +370,15 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
         });
     }
 
+    let mut breakables = Vec::with_capacity(break_tris.len());
+    for (brush, (tris, bb)) in break_tris {
+        let start = indices.len() as u32;
+        indices.extend_from_slice(&tris);
+        breakables.push((brush, start..indices.len() as u32, bb));
+    }
+
     let triangle_count = indices.len() / 3;
-    MapMesh { vertices, indices, clusters, bounds, triangle_count }
+    MapMesh { vertices, indices, clusters, bounds, triangle_count, breakables }
 }
 
 /// Clips a box's XZ footprint by a set of vertical planes.
@@ -387,12 +418,12 @@ fn clip_footprint(aabb: &Aabb, planes: &[[f32; 3]]) -> Vec<Vec2> {
 /// Emits a convex polygon as a triangle fan of quads, so it can travel through
 /// the same four-corner `Face` the rest of the builder uses.
 #[allow(clippy::too_many_arguments)]
-fn push_fan(faces: &mut Vec<Face>, poly: &[Vec3], normal: Vec3, b: &crate::maps::brush::Brush,
-            mat: Mat, _flip: bool, cutout: bool, no_shadow: bool) {
+fn push_fan(faces: &mut Vec<Face>, brush: u32, poly: &[Vec3], normal: Vec3,
+            b: &crate::maps::brush::Brush, mat: Mat, cutout: bool, no_shadow: bool) {
     for i in 1..poly.len().saturating_sub(1) {
         let corners = [poly[0], poly[i], poly[i + 1], poly[i + 1]];
         let uvs = plane_uvs(&corners, 1, b.tex_scale);
-        faces.push(Face { corners, normal, uvs, mat, light_scale: b.light_scale, cutout, no_shadow });
+        faces.push(Face { brush, corners, normal, uvs, mat, light_scale: b.light_scale, cutout, no_shadow });
     }
 }
 

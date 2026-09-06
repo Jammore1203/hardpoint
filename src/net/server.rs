@@ -366,6 +366,11 @@ impl Server {
     fn begin_countdown(&mut self) {
         self.state.phase = Phase::Countdown;
         self.state.timer = 5.0;
+        // Cover that was shot away last round comes back for this one, or a
+        // long match ends with nothing left to hide behind.
+        self.world.map.collision.reset_destruction();
+        self.world.brush_health = self.world.map.collision.brushes.iter().map(|b| b.health).collect();
+        self.world.events.push(GameEvent::RoundReset);
         self.mode.begin_round(&mut self.world, &mut self.state);
         self.broadcast_phase();
         self.world.events.push(GameEvent::RoundStart { round: self.state.round });

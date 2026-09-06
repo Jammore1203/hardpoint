@@ -419,6 +419,31 @@ impl MapBuilder {
         self.boxc(cx, y, cz, w, h, w, mat)
     }
 
+    /// A wall panel that can be shot away.
+    ///
+    /// The point is not spectacle: it is that a position defended by cover can
+    /// be attacked by removing the cover, so holding an angle is a decision
+    /// with a counter rather than a fact about the level.
+    #[allow(clippy::too_many_arguments)]
+    pub fn breakable(&mut self, x: f32, y: f32, z: f32, sx: f32, sy: f32, sz: f32,
+                     health: f32, mat: Mat) -> &mut Brush {
+        let b = self.boxx(x, y, z, sx, sy, sz, mat);
+        b.flags.insert(BrushFlags::BREAKABLE);
+        b.health = health.max(1.0);
+        b.tex_scale = 1.6;
+        b
+    }
+
+    /// A breakable panel filling a doorway-sized hole in a wall: a shortcut
+    /// that has to be opened before it exists.
+    pub fn breakable_wall_x(&mut self, x: f32, y: f32, z: f32, len: f32, h: f32, health: f32, mat: Mat) {
+        self.breakable(x, y, z - WALL * 0.5, len, h, WALL, health, mat);
+    }
+
+    pub fn breakable_wall_z(&mut self, x: f32, y: f32, z: f32, len: f32, h: f32, health: f32, mat: Mat) {
+        self.breakable(x - WALL * 0.5, y, z, WALL, h, len, health, mat);
+    }
+
     /// A block with one vertical corner cut off at 45 degrees.
     ///
     /// The cheapest way to stop a building being a box: chamfered corners read
