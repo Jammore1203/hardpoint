@@ -168,6 +168,9 @@ pub struct HudFrame<'a> {
     pub alive: bool,
     /// How far into aiming down the sights the player is, 0..1.
     pub ads: f32,
+    /// Team-mates currently being heard, and whether we are transmitting.
+    pub voices: &'a [(String, f32)],
+    pub transmitting: bool,
     pub respawn_in: f32,
     pub health: f32,
     pub armor: f32,
@@ -199,6 +202,7 @@ pub fn draw(p: &mut Painter, f: &HudFrame) {
     draw_bottom_left(p, f, h, s);
     draw_bottom_right(p, f, w, h, s);
     draw_killfeed(p, f, w);
+    draw_voice(p, f, w, h, s);
     draw_objectives(p, f, w, h);
     draw_damage_indicators(p, f, w, h);
     if f.show_damage_numbers { draw_damage_numbers(p, f); }
@@ -669,3 +673,25 @@ pub fn draw_scoreboard(p: &mut Painter, client: &Client, mode: ModeId, now: f64,
 
 /// Colour for a team's marker, exported for the world view.
 pub fn team_marker_color(team: Team) -> Color { theme::team_color(team) }
+
+/// Who is speaking, bottom-left above the vitals.
+///
+/// Voice with no indication of who is talking is a disembodied noise; with a
+/// name against it, it is a callout. The bar tracks the level the mixer is
+/// actually producing, so it also says plainly whether someone's microphone is
+/// working.
+fn draw_voice(p: &mut Painter, f: &HudFrame, _w: f32, h: f32, s: f32) {
+    let mut y = h - 150.0 * s;
+    if f.transmitting {
+        p.text_shadow(24.0 * s, y, theme::SMALL * s, theme::ACCENT, "TRANSMITTING");
+        y -= 20.0 * s;
+    }
+    for (name, level) in f.voices.iter().take(4) {
+        if *level < 0.004 { continue; }
+        let bar = (level * 6.0).clamp(0.08, 1.0);
+        p.rect(24.0 * s, y - 9.0 * s, 4.0 * s, 11.0 * s, theme::PANEL_DEEP);
+        p.rect(24.0 * s, y + 2.0 * s - 11.0 * s * bar, 4.0 * s, 11.0 * s * bar, theme::GOOD);
+        p.text_shadow(34.0 * s, y, theme::SMALL * s, theme::TEXT_BRIGHT, name);
+        y -= 20.0 * s;
+    }
+}

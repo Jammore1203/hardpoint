@@ -71,6 +71,8 @@ pub struct Settings {
     pub sfx_volume: f32,
     pub music_volume: f32,
     pub voice_volume: f32,
+    /// Whether the microphone is opened at all.
+    pub voice_enabled: bool,
 
     // --------------------------------------------------------------- input
     pub sensitivity: f32,
@@ -125,6 +127,7 @@ impl Default for Settings {
             sfx_volume: 1.0,
             music_volume: 0.55,
             voice_volume: 0.9,
+            voice_enabled: true,
             sensitivity: 2.6,
             ads_sensitivity: 0.75,
             invert_y: false,
@@ -187,6 +190,7 @@ impl Settings {
         s.sfx_volume = kv.f32_or("audio.sfx", s.sfx_volume).clamp(0.0, 1.0);
         s.music_volume = kv.f32_or("audio.music", s.music_volume).clamp(0.0, 1.0);
         s.voice_volume = kv.f32_or("audio.voice", s.voice_volume).clamp(0.0, 1.0);
+        s.voice_enabled = kv.bool_or("audio.voice_enabled", s.voice_enabled);
 
         s.sensitivity = kv.f32_or("input.sensitivity", s.sensitivity).clamp(0.1, 20.0);
         s.ads_sensitivity = kv.f32_or("input.ads_sensitivity", s.ads_sensitivity).clamp(0.1, 2.0);
@@ -254,6 +258,7 @@ impl Settings {
         kv.set_f32("audio.sfx", self.sfx_volume);
         kv.set_f32("audio.music", self.music_volume);
         kv.set_f32("audio.voice", self.voice_volume);
+        kv.set_bool("audio.voice_enabled", self.voice_enabled);
 
         kv.set_f32("input.sensitivity", self.sensitivity);
         kv.set_f32("input.ads_sensitivity", self.ads_sensitivity);

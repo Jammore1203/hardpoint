@@ -20,6 +20,7 @@ impl App {
         }
 
         self.handle_game_keys(now);
+        self.pump_voice();
         self.capture_mouse(!self.hud.chat_open);
 
         if self.hud.chat_open {
@@ -33,6 +34,38 @@ impl App {
         self.consume_events(now, true);
         self.update_world_and_audio(dt, now);
         self.check_phase(now);
+    }
+
+    /// Moves speech in both directions: captured frames out, received frames
+    /// into the mixer.
+    fn pump_voice(&mut self) {
+        let talking = !self.hud.chat_open
+            && self.input.held(&self.settings.bindings, Action::VoiceChat);
+        // The microphone is opened the first time someone actually asks for
+        // it. Most players never press the key, and opening a capture device
+        // at startup is both a permission prompt and a device nobody wanted.
+        if talking && self.settings.voice_enabled && !self.mic_tried {
+            self.mic_tried = true;
+            self.mic = crate::audio::voice::Microphone::open();
+            if !self.mic.available {
+                eprintln!("[voice] no usable input device; voice chat disabled");
+            }
+        }
+        self.mic.set_transmitting(talking && self.settings.voice_enabled);
+        self.voice_talking = talking && self.mic.available && self.settings.voice_enabled;
+
+        let frames = self.mic.poll();
+        if let Some(c) = self.client.as_mut() {
+            for f in frames {
+                let encoded = crate::audio::voice::encode_frame(&f);
+                c.send_voice(&encoded);
+            }
+            for (speaker, payload) in c.take_voice() {
+                let mut pcm = [0.0f32; crate::audio::voice::FRAME_SAMPLES];
+                crate::audio::voice::decode_frame(&payload, &mut pcm);
+                self.audio.push_voice(speaker, pcm);
+            }
+        }
     }
 
     fn handle_game_keys(&mut self, _now: f64) {

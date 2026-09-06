@@ -67,6 +67,8 @@ impl Default for ServerConfig {
 
 /// Per-connected-client state.
 struct Client {
+    /// When this client last sent a voice frame, for rate limiting.
+    last_voice: f64,
     conn: Connection,
     slot: u8,
     /// Highest input command executed.
@@ -90,6 +92,7 @@ struct Client {
 impl Client {
     fn new(conn: Connection, slot: u8) -> Client {
         Client {
+            last_voice: 0.0,
             conn, slot,
             last_input: 0,
             budget: 0.0,
@@ -487,6 +490,7 @@ impl Server {
             PacketKind::Payload => self.handle_payload(data, from),
             PacketKind::Disconnect => self.handle_disconnect(data, from),
             PacketKind::KeepAlive => {}
+            PacketKind::Voice => self.handle_voice(data, from),
             _ => {}
         }
     }
@@ -634,6 +638,63 @@ impl Server {
         self.clients.iter().flatten()
             .find(|c| c.conn.addr == addr && c.conn.token == token)
             .map(|c| c.slot)
+    }
+
+    /// Relays one frame of speech to the sender's living teammates.
+    ///
+    /// The server does not decode it. Voice is opaque here on purpose: it
+    /// keeps the codec entirely a client concern, and it means a malformed
+    /// frame costs one player a syllable rather than costing the server
+    /// anything at all. The payload is bounded and the rate is limited, which
+    /// is the only part the server has to care about.
+    fn handle_voice(&mut self, data: &[u8], from: SocketAddr) {
+        let mut r = Reader::new(data);
+        let Some(magic) = r.u32() else { return };
+        if magic != PROTOCOL_MAGIC { return; }
+        let Some(_kind) = r.u8() else { return };
+        let Some(token) = r.u64() else { return };
+        let Some(slot) = self.slot_of(from, token) else { return };
+        let Some(len) = r.u16() else { return };
+        let len = len as usize;
+        if len == 0 || len > crate::audio::voice::FRAME_BYTES * 4 { return; }
+        let Some(frame) = r.bytes(len) else { return };
+
+        // Rate limit: a client that sends faster than it can speak is either
+        // broken or trying to use voice as an amplifier against the server.
+        let now = self.time;
+        {
+            let Some(c) = self.clients[slot as usize].as_mut() else { return };
+            if now - c.last_voice < 0.012 { return; }
+            c.last_voice = now;
+        }
+
+        let team = self.world.players.get(slot as usize).map(|p| p.team);
+        let Some(team) = team else { return };
+
+        let mut buf = [0u8; MAX_PACKET];
+        let n = {
+            let mut w = Writer::new(&mut buf);
+            w.u32(PROTOCOL_MAGIC);
+            w.u8(PacketKind::Voice as u8);
+            w.u8(slot);
+            w.u16(len as u16);
+            w.bytes(frame);
+            w.len()
+        };
+
+        let targets: Vec<SocketAddr> = self.clients.iter().enumerate()
+            .filter_map(|(i, c)| {
+                let c = c.as_ref()?;
+                if i as u8 == slot { return None; }
+                // Team-only, which is what makes it a tactical channel rather
+                // than a shouting match.
+                if self.world.players.get(i).map(|p| p.team) != Some(team) { return None; }
+                Some(c.conn.addr)
+            })
+            .collect();
+        for addr in targets {
+            self.sock.send(&buf[..n], addr);
+        }
     }
 
     fn handle_payload(&mut self, data: &[u8], from: SocketAddr) {

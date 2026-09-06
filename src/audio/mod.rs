@@ -8,6 +8,7 @@
 
 pub mod music;
 pub mod synth;
+pub mod voice;
 
 use crate::assets::materials::Surface;
 use crate::core::Rng;
@@ -16,6 +17,7 @@ use crate::game::weapons::{WeaponId, ALL_WEAPONS};
 use crate::maps::{Ambience, MusicTrack};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use glam::Vec3;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use synth::Clip;
@@ -50,6 +52,12 @@ enum Command {
     SetCategory(u8, f32),
     Stop(u32),
     StopCategory(u8),
+    /// Decoded speech from one player, appended to their stream.
+    ///
+    /// Voice cannot go through `Play`: it arrives as a continuous stream in
+    /// twenty-millisecond pieces, and playing each piece as its own clip would
+    /// click at every boundary and drift out of sync with the packet rate.
+    VoiceChunk { speaker: u8, samples: Box<[f32; voice::FRAME_SAMPLES]> },
 }
 
 struct Voice {
@@ -86,11 +94,37 @@ impl Voice {
     }
 }
 
+/// One speaker's incoming voice stream.
+///
+/// A short jitter buffer absorbs the difference between the network's arrival
+/// times and the sound card's steady appetite. Too small and every late packet
+/// is a gap; too large and people answer questions after the moment has
+/// passed. Three frames is about sixty milliseconds, which is a good deal less
+/// than the interpolation delay the game already runs at.
+#[derive(Default)]
+struct VoiceStream {
+    buffer: std::collections::VecDeque<f32>,
+    /// Fractional read position within the buffer, for rate conversion.
+    phase: f32,
+    /// True once enough has arrived to start playing without immediately
+    /// running dry.
+    playing: bool,
+    /// Smoothed output level, reported back for the talking indicator.
+    level: f32,
+}
+
+const VOICE_PRIME_FRAMES: usize = 3;
+
 struct Mixer {
     voices: Vec<Voice>,
     category_gain: [f32; CATEGORIES],
     rx: Receiver<Command>,
     channels: usize,
+    streams: Vec<VoiceStream>,
+    /// Shared with the game thread so the interface can show who is speaking
+    /// without the mixer having to send messages back.
+    talking: Arc<[AtomicU32]>,
+    sample_rate: f32,
 }
 
 impl Mixer {
@@ -129,6 +163,20 @@ impl Mixer {
                         if v.category == c { v.active = false; }
                     }
                 }
+                Command::VoiceChunk { speaker, samples } => {
+                    let Some(st) = self.streams.get_mut(speaker as usize) else { continue };
+                    // A stream that has fallen a long way behind is one whose
+                    // owner stopped talking and started again; catching up by
+                    // playing the backlog fast is worse than dropping it.
+                    if st.buffer.len() > voice::FRAME_SAMPLES * 12 {
+                        st.buffer.clear();
+                        st.playing = false;
+                    }
+                    st.buffer.extend(samples.iter().copied());
+                    if st.buffer.len() >= voice::FRAME_SAMPLES * VOICE_PRIME_FRAMES {
+                        st.playing = true;
+                    }
+                }
             }
         }
     }
@@ -153,6 +201,45 @@ impl Mixer {
         for s in out.iter_mut() { *s = 0.0; }
         let ch = self.channels.max(1);
         let frames = out.len() / ch;
+
+        // Voice first, so a full mixer never starves speech of a slot.
+        //
+        // Voice is resampled here rather than on arrival: the sound card's rate
+        // is not known until the device opens, and eight kilohertz into
+        // forty-eight is a ratio the mixer already has the machinery for.
+        let voice_cat = self.category_gain[3 % CATEGORIES];
+        let step = voice::VOICE_RATE as f32 / self.sample_rate.max(1.0);
+        for (slot, st) in self.streams.iter_mut().enumerate() {
+            if !st.playing {
+                st.level *= 0.85;
+                self.talking[slot].store(st.level.to_bits(), Ordering::Relaxed);
+                continue;
+            }
+            let mut peak = 0.0f32;
+            for f in 0..frames {
+                let idx = st.phase as usize;
+                if idx + 1 >= st.buffer.len() {
+                    // Ran dry: stop and wait for the buffer to refill rather
+                    // than repeating the last sample into a buzz.
+                    st.playing = false;
+                    break;
+                }
+                let frac = st.phase - idx as f32;
+                let s = st.buffer[idx] * (1.0 - frac) + st.buffer[idx + 1] * frac;
+                peak = peak.max(s.abs());
+                let g = s * voice_cat;
+                out[f * ch] += g;
+                if ch > 1 { out[f * ch + 1] += g; }
+                st.phase += step;
+            }
+            let consumed = st.phase as usize;
+            if consumed > 0 {
+                st.buffer.drain(..consumed.min(st.buffer.len()));
+                st.phase -= consumed as f32;
+            }
+            st.level = st.level * 0.6 + peak * 0.4;
+            self.talking[slot].store(st.level.to_bits(), Ordering::Relaxed);
+        }
 
         for v in self.voices.iter_mut() {
             if !v.active { continue; }
@@ -406,13 +493,31 @@ pub struct AudioEngine {
     /// Set when the device could not be opened; the game still runs.
     pub available: bool,
     pub device_name: String,
+    /// Per-player speech level, written by the mixer and read by the interface.
+    /// Stored as bit-cast floats so the audio thread never takes a lock.
+    talking: Arc<[AtomicU32]>,
 }
 
 impl AudioEngine {
+    /// Queues one decoded frame of speech from a player.
+    pub fn push_voice(&self, speaker: u8, samples: [f32; voice::FRAME_SAMPLES]) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Command::VoiceChunk { speaker, samples: Box::new(samples) });
+        }
+    }
+
+    /// How loudly a player is currently being heard, for the talk indicator.
+    pub fn talk_level(&self, speaker: u8) -> f32 {
+        self.talking.get(speaker as usize)
+            .map(|a| f32::from_bits(a.load(Ordering::Relaxed)))
+            .unwrap_or(0.0)
+    }
+
     /// Opens the default output device. Failure is not fatal: the game plays
     /// silently rather than refusing to start.
     pub fn new() -> AudioEngine {
         let mut engine = AudioEngine {
+            talking: (0..crate::game::types::MAX_PLAYERS).map(|_| AtomicU32::new(0)).collect(),
             _stream: None,
             tx: None,
             bank: None,
@@ -449,11 +554,17 @@ impl AudioEngine {
         engine.sample_rate = sample_rate;
 
         let (tx, rx) = std::sync::mpsc::channel();
+        let talking: Arc<[AtomicU32]> =
+            (0..crate::game::types::MAX_PLAYERS).map(|_| AtomicU32::new(0)).collect();
+        engine.talking = talking.clone();
         let mut mixer = Mixer {
             voices: (0..MAX_VOICES).map(|_| Voice::silent()).collect(),
             category_gain: [1.0, 0.6, 1.0, 0.8],
             rx,
             channels,
+            streams: (0..crate::game::types::MAX_PLAYERS).map(|_| VoiceStream::default()).collect(),
+            talking,
+            sample_rate,
         };
 
         let err_fn = |e| eprintln!("[audio] stream error: {e}");

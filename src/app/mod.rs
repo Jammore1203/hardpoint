@@ -202,6 +202,11 @@ pub struct App {
     damage_flash: f32,
     flash_blind: f32,
     mouse_captured: bool,
+    /// Microphone, opened lazily: most players never press the key.
+    mic: crate::audio::voice::Microphone,
+    mic_tried: bool,
+    /// True while the local player is transmitting, for the indicator.
+    voice_talking: bool,
     pub(crate) toggle_ads_state: bool,
     pub(crate) toggle_crouch_state: bool,
 
@@ -322,6 +327,9 @@ impl App {
             damage_flash: 0.0,
             flash_blind: 0.0,
             mouse_captured: false,
+            mic: crate::audio::voice::Microphone::disabled(),
+            mic_tried: false,
+            voice_talking: false,
             toggle_ads_state: false,
             toggle_crouch_state: false,
             bank_rx: Some(bank_rx),

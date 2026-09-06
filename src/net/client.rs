@@ -167,6 +167,9 @@ pub struct Client {
 
     // ------------------------------------------------------- prediction
     pub local: Player,
+    /// Speech frames received since the last drain, as `(speaker, payload)`.
+    /// The client does not decode them: the app owns the audio engine.
+    pub voice_in: Vec<(u8, Vec<u8>)>,
     pub predicted: MoveState,
     /// Difference between where we drew the player and where the server put
     /// them, eased out over time.
@@ -224,6 +227,7 @@ impl Client {
             clock_ref: 0.0,
             clock_at: 0.0,
             local: Player::new(0),
+            voice_in: Vec::new(),
             predicted: MoveState::default(),
             error_offset: Vec3::ZERO,
             cmd_seq: 0,
@@ -433,6 +437,17 @@ impl Client {
                 self.local.in_use = true;
                 self.conn = Some(Connection::new(self.server, self.token, self.time));
                 self.state = ClientState::Playing;
+            }
+            PacketKind::Voice => {
+                let mut r = Reader::new(data);
+                let _ = r.u32();
+                let _ = r.u8();
+                let Some(speaker) = r.u8() else { return };
+                let Some(len) = r.u16() else { return };
+                let Some(frame) = r.bytes(len as usize) else { return };
+                if frame.len() >= crate::audio::voice::FRAME_BYTES {
+                    self.voice_in.push((speaker, frame.to_vec()));
+                }
             }
             PacketKind::Denied => {
                 let mut r = Reader::new(data);
@@ -935,6 +950,29 @@ impl Client {
         let text = text.trim();
         if text.is_empty() { return; }
         self.send_message(&ClientMsg::Chat { team_only, text: text.to_string() });
+    }
+
+    /// Sends one encoded frame of speech. Fire and forget by design: a voice
+    /// frame that needs retransmitting has already missed its moment.
+    pub fn send_voice(&mut self, frame: &[u8]) {
+        let Some(conn) = self.conn.as_ref() else { return };
+        let mut buf = [0u8; crate::net::protocol::MAX_PACKET];
+        let n = {
+            let mut w = Writer::new(&mut buf);
+            w.u32(crate::net::protocol::PROTOCOL_MAGIC);
+            w.u8(PacketKind::Voice as u8);
+            w.u64(self.token);
+            w.u16(frame.len() as u16);
+            w.bytes(frame);
+            w.len()
+        };
+        let _ = conn;
+        self.sock.send(&buf[..n], self.server);
+    }
+
+    /// Takes the frames that have arrived since the last call.
+    pub fn take_voice(&mut self) -> Vec<(u8, Vec<u8>)> {
+        std::mem::take(&mut self.voice_in)
     }
 
     pub fn set_loadout(&mut self, l: &Loadout) {

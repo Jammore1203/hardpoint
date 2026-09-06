@@ -47,6 +47,11 @@ pub enum PacketKind {
     TrackerQuery = 12,
     TrackerList = 13,
     TrackerHeartbeat = 14,
+    /// One frame of speech. Deliberately its own packet kind rather than a
+    /// reliable message: voice is worthless late, so a lost frame must never
+    /// hold up anything behind it, and it must not share a retransmit queue
+    /// with state that does matter.
+    Voice = 15,
 }
 
 impl PacketKind {
@@ -57,7 +62,7 @@ impl PacketKind {
             4 => Accepted, 5 => Denied, 6 => Payload, 7 => Disconnect,
             8 => Discovery, 9 => DiscoveryReply, 10 => KeepAlive,
             11 => TrackerRegister, 12 => TrackerQuery, 13 => TrackerList,
-            14 => TrackerHeartbeat,
+            14 => TrackerHeartbeat, 15 => Voice,
             _ => return None,
         })
     }

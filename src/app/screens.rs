@@ -1250,6 +1250,19 @@ fn draw_hud(app: &mut App, now: f64) {
     };
     let view_proj = app.camera_view_proj(aspect);
 
+    // Who we can currently hear. The mixer owns the levels; this only reads
+    // them, so a silent player costs nothing.
+    let mut voices: Vec<(String, f32)> = Vec::new();
+    for slot in 0..crate::game::types::MAX_PLAYERS {
+        if slot as u8 == client.slot { continue; }
+        let level = app.audio.talk_level(slot as u8);
+        if level < 0.004 { continue; }
+        let name = client.name_of(slot as u8).to_string();
+        if name.is_empty() { continue; }
+        voices.push((name, level));
+    }
+    voices.sort_by(|a, b| b.1.total_cmp(&a.1));
+
     let frame = super::hud::HudFrame {
         client,
         hud: &app.hud,
@@ -1263,6 +1276,8 @@ fn draw_hud(app: &mut App, now: f64) {
         objectives: &objectives,
         alive,
         ads: client.local.mv.ads_t,
+        voices: &voices,
+        transmitting: app.voice_talking,
         respawn_in: respawn,
         health: client.local.health,
         armor: client.local.armor,
