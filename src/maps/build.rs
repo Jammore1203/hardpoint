@@ -622,6 +622,24 @@ impl MapBuilder {
         b
     }
 
+    /// An octagonal prism that nothing collides with.
+    ///
+    /// The decorative twin of `column`, for the things that want a round
+    /// silhouette and no physics: canopies, bushes, foliage clumps.
+    pub fn decor_column(&mut self, cx: f32, y: f32, cz: f32, r: f32, h: f32, mat: Mat) -> &mut Brush {
+        let c = r * 0.586;
+        let mid = glam::Vec2::new(cx, cz);
+        let (x0, z0, x1, z1) = (cx - r, cz - r, cx + r, cz + r);
+        let clips = Clips::new()
+            .cut(x0 + c, z0, x0, z0 + c, mid)
+            .cut(x1 - c, z0, x1, z0 + c, mid)
+            .cut(x1 - c, z1, x1, z1 - c, mid)
+            .cut(x0 + c, z1, x0, z1 - c, mid);
+        let b = self.decor(x0, y, z0, r * 2.0, h, r * 2.0, mat);
+        b.kind = BrushKind::Clipped(clips);
+        b
+    }
+
     /// A wall running along an arbitrary line rather than an axis.
     ///
     /// Four clip planes turn the bounding box into the rotated box the wall

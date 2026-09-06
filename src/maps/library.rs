@@ -322,12 +322,41 @@ fn truck(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, along_x: bool, body: Mat)
            if along_x { 2.2 } else { 1.9 }, body).with_scale(1.6);
 }
 
-/// A tree: solid trunk, non-colliding canopy that breaks sightlines overhead.
-fn tree(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, h: f32, spread: f32) {
-    b.boxc(cx, y, cz, 0.62, h, 0.62, Mat::WoodPlank).with_scale(2.0);
-    let c = b.decor(cx - spread * 0.5, y + h * 0.62, cz - spread * 0.5, spread, h * 0.5, spread, Mat::Foliage);
+/// Deterministic jitter in the range -1..1 from a position, so two trees a
+/// metre apart are not the same tree and the same tree is the same tree every
+/// time the map is built.
+fn leaf_jitter(x: f32, z: f32, salt: u32) -> f32 {
+    let mut h = (x.to_bits() ^ z.to_bits().rotate_left(13)) ^ salt.wrapping_mul(0x9E37_79B9);
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x7FEB_352D);
+    h ^= h >> 15;
+    ((h & 0xFFFF) as f32 / 32_768.0) - 1.0
+}
+
+/// One clump of leaves: an eight-sided prism, not a cube.
+fn leaf_clump(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, r: f32, h: f32, scale: f32) {
+    let c = b.decor_column(cx, y, cz, r, h, Mat::Foliage);
     c.flags = BrushFlags::CUTOUT | BrushFlags::NOSHADOW | BrushFlags::NONAV;
-    c.tex_scale = 3.0;
+    c.tex_scale = scale;
+}
+
+/// A tree: solid trunk, non-colliding canopy that breaks sightlines overhead.
+///
+/// The canopy used to be one cutout box, which from any angle read as exactly
+/// what it was: a green cube on a stick. Three overlapping octagonal prisms of
+/// different radii, jittered off the trunk, cost a few hundred triangles and
+/// give it a silhouette with corners in the right places -- which, with a
+/// cutout texture doing the fine detail, is all a tree of this period ever
+/// was.
+fn tree(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, h: f32, spread: f32) {
+    // Round trunk: the canopy stopped being a cube, and a square post under a
+    // round canopy is the one that draws the eye next.
+    b.column(cx, y, cz, 0.33, h * 0.92, Mat::WoodPlank).with_scale(2.0);
+    let jx = leaf_jitter(cx, cz, 1) * spread * 0.11;
+    let jz = leaf_jitter(cx, cz, 2) * spread * 0.11;
+    leaf_clump(b, cx + jx * 0.5, y + h * 0.52, cz - jz * 0.5, spread * 0.34, h * 0.30, 2.6);
+    leaf_clump(b, cx - jx, y + h * 0.64, cz + jz, spread * 0.52, h * 0.34, 3.0);
+    leaf_clump(b, cx + jx, y + h * 0.84, cz + jz * 0.4, spread * 0.37, h * 0.28, 2.4);
 }
 
 /// A thicket: dense undergrowth you can neither walk nor shoot through.
@@ -342,10 +371,16 @@ fn thicket(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, w: f32, d: f32, h: f32)
     t.tex_scale = 1.6;
     t.top = Mat::Grass;
     // A ragged fringe of real foliage on top, so the mass reads as leaves
-    // rather than as a green box.
-    let c = b.decor(cx - w * 0.58, y + h * 0.72, cz - d * 0.58, w * 1.16, h * 0.5, d * 1.16, Mat::Foliage);
-    c.flags = BrushFlags::CUTOUT | BrushFlags::NOSHADOW | BrushFlags::NONAV;
-    c.tex_scale = 2.4;
+    // rather than as a green box: overlapping clumps along its length, not one
+    // slab the same shape as the thing underneath.
+    let steps = ((w.max(d) / 3.2).round() as i32).clamp(1, 5);
+    for i in 0..steps {
+        let t = (i as f32 + 0.5) / steps as f32 - 0.5;
+        let (ox, oz) = if w >= d { (t * w * 0.86, 0.0) } else { (0.0, t * d * 0.86) };
+        let r = (w.min(d) * 0.62).max(1.1);
+        let jy = leaf_jitter(cx + ox, cz + oz, 5) * h * 0.08;
+        leaf_clump(b, cx + ox, y + h * 0.70 + jy, cz + oz, r, h * 0.52, 2.4);
+    }
 }
 
 /// A rock outcrop: hard cover with a climbable shoulder.
@@ -356,9 +391,10 @@ fn outcrop(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, w: f32, h: f32, mat: Ma
 
 /// A bush: pure visual concealment, never blocks movement or bullets.
 fn bush(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, w: f32, h: f32) {
-    let c = b.decor(cx - w * 0.5, y, cz - w * 0.5, w, h, w, Mat::Foliage);
-    c.flags = BrushFlags::CUTOUT | BrushFlags::NOSHADOW | BrushFlags::NONAV;
-    c.tex_scale = 2.0;
+    let jx = leaf_jitter(cx, cz, 3) * w * 0.16;
+    let jz = leaf_jitter(cx, cz, 4) * w * 0.16;
+    leaf_clump(b, cx, y, cz, w * 0.50, h * 0.72, 2.0);
+    leaf_clump(b, cx + jx, y + h * 0.42, cz + jz, w * 0.38, h * 0.58, 1.7);
 }
 
 /// A cylindrical storage tank. One octagonal brush, rather than the two
