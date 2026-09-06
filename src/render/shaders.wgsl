@@ -27,6 +27,7 @@ struct Globals {
     sun: vec4<f32>,            // direction toward the sun (xyz), cloud cover (w)
     warm: vec4<f32>,           // per-map warm tint (rgb), fog height falloff (w)
     cool: vec4<f32>,           // per-map cool tint (rgb), fog floor height (w)
+    post: vec4<f32>,           // bloom strength, threshold, bloom texel x, y
     gloss: array<vec4<f32>, 17>,   // per-material gloss, four to a row
 };
 
@@ -42,8 +43,15 @@ struct Globals {
 // The finished scene, sampled only by the blit pass. It lives in its own
 // group because during the scene pass it is the render target, and a texture
 // cannot be bound and written at the same time.
+// Whatever the current full-screen pass is reading: the finished scene for
+// the bright pass and the blit, one of the bloom targets for the blurs.
 @group(3) @binding(0) var scene_tex: texture_2d<f32>;
 @group(3) @binding(1) var scene_smp: sampler;
+// The finished bloom, read only by the blit. Point sampling is right for
+// magnifying the scene and wrong for magnifying a quarter-resolution blur,
+// hence the second sampler.
+@group(3) @binding(2) var bloom_tex: texture_2d<f32>;
+@group(3) @binding(3) var post_smp: sampler;
 
 // ---------------------------------------------------------------- helpers
 
@@ -630,9 +638,64 @@ fn vs_blit(@builtin(vertex_index) vi: u32) -> BlitOut {
     return out;
 }
 
+// Bright pass: a four-tap box downsample of the scene, with everything below
+// the threshold subtracted away.
+//
+// The scene target is eight-bit and clamps at one, so there is no headroom to
+// find highlights in the way a float target would have. This is how the games
+// of this era did it too: take the top of the range and treat it as the part
+// that glows. Lit windows, muzzle flashes and the sun qualify; a white wall
+// in sunlight does not, quite, which is the line worth drawing.
+@fragment
+fn fs_bright(in: BlitOut) -> @location(0) vec4<f32> {
+    let t = G.screen.zw;
+    var c = textureSample(scene_tex, post_smp, in.uv + vec2<f32>(-1.0, -1.0) * t).rgb;
+    c += textureSample(scene_tex, post_smp, in.uv + vec2<f32>(1.0, -1.0) * t).rgb;
+    c += textureSample(scene_tex, post_smp, in.uv + vec2<f32>(-1.0, 1.0) * t).rgb;
+    c += textureSample(scene_tex, post_smp, in.uv + vec2<f32>(1.0, 1.0) * t).rgb;
+    c = c * 0.25;
+
+    let lum = dot(c, vec3<f32>(0.299, 0.587, 0.114));
+    let thr = G.post.y;
+    // Soft knee, so a surface drifting across the threshold does not switch
+    // on all at once as the player turns.
+    let k = smoothstep(thr, thr + 0.16, lum);
+    return vec4<f32>(c * k, 1.0);
+}
+
+// Nine taps on a five-tap gaussian, using the hardware to fetch two texels at
+// a time: the classic separable blur, half the samples for the same kernel.
+fn blur_along(uv: vec2<f32>, dir: vec2<f32>) -> vec3<f32> {
+    let o1 = dir * 1.3846153846;
+    let o2 = dir * 3.2307692308;
+    var c = textureSample(scene_tex, post_smp, uv).rgb * 0.2270270270;
+    c += textureSample(scene_tex, post_smp, uv + o1).rgb * 0.3162162162;
+    c += textureSample(scene_tex, post_smp, uv - o1).rgb * 0.3162162162;
+    c += textureSample(scene_tex, post_smp, uv + o2).rgb * 0.0702702703;
+    c += textureSample(scene_tex, post_smp, uv - o2).rgb * 0.0702702703;
+    return c;
+}
+
+@fragment
+fn fs_blur_h(in: BlitOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(blur_along(in.uv, vec2<f32>(G.post.z, 0.0)), 1.0);
+}
+
+@fragment
+fn fs_blur_v(in: BlitOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(blur_along(in.uv, vec2<f32>(0.0, G.post.w)), 1.0);
+}
+
 @fragment
 fn fs_blit(in: BlitOut) -> @location(0) vec4<f32> {
     var c = textureSample(scene_tex, scene_smp, in.uv).rgb;
+
+    // Bloom, added rather than mixed: it is light that scattered in the lens,
+    // and light adds. Before the damage tint and the vignette, so those still
+    // read over the top of a bright window.
+    if (G.post.x > 0.0001) {
+        c += textureSample(bloom_tex, post_smp, in.uv).rgb * G.post.x;
+    }
 
     // Damage and flash are applied here so they cover everything including
     // the viewmodel, and cost one blend on an already-full-screen pass.

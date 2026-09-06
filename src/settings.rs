@@ -313,6 +313,11 @@ impl Settings {
                 Quality::Medium => 0.28,
                 Quality::High => 0.36,
             },
+            bloom: match self.effects_quality {
+                Quality::Low => 0.0,
+                Quality::Medium => 0.28,
+                Quality::High => 0.36,
+            },
             film_grade: self.film_grade,
             particles: match self.effects_quality {
                 Quality::Low => 0.4,

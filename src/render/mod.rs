@@ -15,7 +15,7 @@ use crate::maps::Env;
 use crate::math::{Aabb, Frustum};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
-use gpu::{DynBuffer, Gpu, SceneTargets, DEPTH_FORMAT, SCENE_FORMAT};
+use gpu::{BloomTargets, DynBuffer, Gpu, SceneTargets, DEPTH_FORMAT, SCENE_FORMAT};
 use std::sync::Arc;
 use winit::window::Window;
 
@@ -45,10 +45,17 @@ struct Globals {
     sun: [f32; 4],
     warm: [f32; 4],
     cool: [f32; 4],
+    /// Bloom strength, bloom threshold, and the bloom target's texel size.
+    post: [f32; 4],
     /// Per-material gloss, four to a row because a uniform array of scalars
     /// is padded to sixteen bytes an element on every backend that matters.
     gloss: [[f32; 4]; MAT_ROWS],
 }
+
+/// How bright a pixel has to be before it blooms. The scene target is
+/// eight-bit and clamps at one, so this is the top quarter of the range: lit
+/// windows, muzzle flashes, the sun and its glare, and nothing else.
+const BLOOM_THRESHOLD: f32 = 0.85;
 
 /// Every material, four per row; must match the `gloss` array in the shader.
 const MAT_ROWS: usize = crate::assets::materials::MAT_COUNT.div_ceil(4);
@@ -156,6 +163,9 @@ pub struct RenderSettings {
     pub particles: f32,
     /// Strength of the shared high-frequency detail layer, 0 disables it.
     pub detail: f32,
+    /// How much of the blurred bright pass is added back. 0 disables the
+    /// bloom chain entirely, and with it three render passes.
+    pub bloom: f32,
     /// The per-map warm/cool split-tone. Off means the picture is graded by
     /// exposure alone.
     pub film_grade: bool,
@@ -179,6 +189,7 @@ impl Default for RenderSettings {
             shadows: true,
             particles: 1.0,
             detail: 0.30,
+            bloom: 0.30,
             film_grade: true,
         }
     }
@@ -263,6 +274,7 @@ pub struct MapGpu {
 pub struct Renderer {
     pub gpu: Gpu,
     targets: SceneTargets,
+    bloom: BloomTargets,
     pub settings: RenderSettings,
     samples: u32,
 
@@ -275,6 +287,9 @@ pub struct Renderer {
     atlas_bg: wgpu::BindGroup,
     atlas_layout: wgpu::BindGroupLayout,
     scene_bg: wgpu::BindGroup,
+    bright_bg: wgpu::BindGroup,
+    blur_h_bg: wgpu::BindGroup,
+    blur_v_bg: wgpu::BindGroup,
     scene_layout: wgpu::BindGroupLayout,
 
     shader: wgpu::ShaderModule,
@@ -284,6 +299,9 @@ pub struct Renderer {
     pipe_part: wgpu::RenderPipeline,
     pipe_viewmodel: wgpu::RenderPipeline,
     pipe_sprite: wgpu::RenderPipeline,
+    pipe_bright: wgpu::RenderPipeline,
+    pipe_blur_h: wgpu::RenderPipeline,
+    pipe_blur_v: wgpu::RenderPipeline,
     pipe_blit: wgpu::RenderPipeline,
     pipe_ui: wgpu::RenderPipeline,
 
@@ -385,7 +403,9 @@ impl Renderer {
             samples,
         );
 
-        let (scene_layout, scene_bg) = build_scene_bindings(device, &targets);
+        let bloom = BloomTargets::new(device, targets.width, targets.height);
+        let (scene_layout, post_bgs) = build_scene_bindings(device, &targets, &bloom);
+        let PostBindGroups { scene: scene_bg, bright: bright_bg, blur_h: blur_h_bg, blur_v: blur_v_bg } = post_bgs;
 
         let (cube_v, cube_i) = meshgen::unit_cube();
         let mut shape_vb = Vec::with_capacity(meshgen::PART_SHAPES);
@@ -428,6 +448,7 @@ impl Renderer {
         Ok(Renderer {
             gpu,
             targets,
+            bloom,
             settings,
             samples,
             globals,
@@ -438,6 +459,9 @@ impl Renderer {
             atlas_bg,
             atlas_layout,
             scene_bg,
+            bright_bg,
+            blur_h_bg,
+            blur_v_bg,
             scene_layout,
             shader,
             pipe_sky: pipes.sky,
@@ -446,6 +470,9 @@ impl Renderer {
             pipe_part: pipes.part,
             pipe_viewmodel: pipes.viewmodel,
             pipe_sprite: pipes.sprite,
+            pipe_bright: pipes.bright,
+            pipe_blur_h: pipes.blur_h,
+            pipe_blur_v: pipes.blur_v,
             pipe_blit: pipes.blit,
             pipe_ui: pipes.ui,
             shape_vb,
@@ -546,7 +573,7 @@ impl Renderer {
     pub fn low_power(&self) -> bool { self.gpu.low_power }
     pub fn backend(&self) -> &str { &self.gpu.backend }
     pub fn texture_memory(&self) -> usize { self.texture_bytes }
-    pub fn scene_memory(&self) -> usize { self.targets.memory_bytes() }
+    pub fn scene_memory(&self) -> usize { self.targets.memory_bytes() + self.bloom.memory_bytes() }
     pub fn internal_size(&self) -> (u32, u32) { (self.targets.width, self.targets.height) }
     pub fn window_size(&self) -> (u32, u32) { (self.gpu.config.width, self.gpu.config.height) }
 
@@ -581,9 +608,13 @@ impl Renderer {
         if self.targets.matches(w, h, samples) { return; }
         self.targets = SceneTargets::new(&self.gpu.device, w, h, samples);
         self.samples = self.targets.samples;
-        let (layout, bg) = build_scene_bindings(&self.gpu.device, &self.targets);
+        self.bloom = BloomTargets::new(&self.gpu.device, self.targets.width, self.targets.height);
+        let (layout, bgs) = build_scene_bindings(&self.gpu.device, &self.targets, &self.bloom);
         self.scene_layout = layout;
-        self.scene_bg = bg;
+        self.scene_bg = bgs.scene;
+        self.bright_bg = bgs.bright;
+        self.blur_h_bg = bgs.blur_h;
+        self.blur_v_bg = bgs.blur_v;
     }
 
     fn rebuild_pipelines(&mut self) {
@@ -600,6 +631,9 @@ impl Renderer {
         self.pipe_part = p.part;
         self.pipe_viewmodel = p.viewmodel;
         self.pipe_sprite = p.sprite;
+        self.pipe_bright = p.bright;
+        self.pipe_blur_h = p.blur_h;
+        self.pipe_blur_v = p.blur_v;
         self.pipe_blit = p.blit;
         self.pipe_ui = p.ui;
     }
@@ -737,6 +771,10 @@ impl Renderer {
         } else {
             ([1.0; 3], [1.0; 3])
         };
+        // Bloom is post-processing and the cheapest thing to drop, so it goes
+        // with the rest of the post chain rather than having a switch of its
+        // own.
+        let bloom_on = self.settings.post_processing && self.settings.bloom > 0.001;
         let fog = to_linear(env.fog_color);
         let sky_top = to_linear(env.sky_top);
         let sky_horizon = to_linear(env.sky_horizon);
@@ -768,6 +806,12 @@ impl Renderer {
             // only ever neutralises the tints.
             warm: [warm[0], warm[1], warm[2], env.fog_height_falloff],
             cool: [cool[0], cool[1], cool[2], env.fog_floor],
+            post: [
+                if bloom_on { self.settings.bloom } else { 0.0 },
+                BLOOM_THRESHOLD,
+                1.0 / self.bloom.width as f32,
+                1.0 / self.bloom.height as f32,
+            ],
             gloss: self.gloss,
             grade: [
                 self.settings.detail,
@@ -973,6 +1017,44 @@ impl Renderer {
             }
         }
 
+        // ------------------------------------------------------------ bloom
+        //
+        // Three quarter-resolution passes: extract the bright part of the
+        // scene, blur it across, blur it down. Sixteenth-area targets and a
+        // five-tap kernel each way, so the whole chain costs about an eighth
+        // of one full-screen pass.
+        if bloom_on {
+            let mut pass = |label: &'static str,
+                            target: &wgpu::TextureView,
+                            pipeline: &wgpu::RenderPipeline,
+                            bind: &wgpu::BindGroup| {
+                let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some(label),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: target,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                rp.set_bind_group(0, &self.globals_bg, &[]);
+                rp.set_bind_group(1, &self.world_bg, &[]);
+                rp.set_bind_group(2, &self.atlas_bg, &[]);
+                rp.set_bind_group(3, bind, &[]);
+                rp.set_pipeline(pipeline);
+                rp.draw(0..3, 0..1);
+            };
+            pass("bloom bright", &self.bloom.a_view, &self.pipe_bright, &self.bright_bg);
+            pass("bloom blur h", &self.bloom.b_view, &self.pipe_blur_h, &self.blur_h_bg);
+            pass("bloom blur v", &self.bloom.a_view, &self.pipe_blur_v, &self.blur_v_bg);
+            self.stats.draw_calls += 3;
+        }
+
         // ------------------------------------------------ present + interface
         {
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1085,6 +1167,9 @@ struct Layouts<'a> {
 
 struct Pipelines {
     sky: wgpu::RenderPipeline,
+    bright: wgpu::RenderPipeline,
+    blur_h: wgpu::RenderPipeline,
+    blur_v: wgpu::RenderPipeline,
     world: wgpu::RenderPipeline,
     world_cutout: wgpu::RenderPipeline,
     part: wgpu::RenderPipeline,
@@ -1329,47 +1414,88 @@ fn build_atlas_bindings(
     (layout, bind)
 }
 
-fn build_scene_bindings(device: &wgpu::Device, targets: &SceneTargets) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
-    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+/// The four bind groups the post chain needs, all against one layout.
+struct PostBindGroups {
+    scene: wgpu::BindGroup,
+    bright: wgpu::BindGroup,
+    blur_h: wgpu::BindGroup,
+    blur_v: wgpu::BindGroup,
+}
+
+/// Bindings for every pass that reads a full-screen texture.
+///
+/// One layout serves all four: slot 0 is whatever that pass is reading, slot
+/// 2 is the finished bloom (only the blit looks at it), and there are two
+/// samplers because they want opposite things. The scene is magnified with
+/// point sampling, which is what makes a low internal resolution read as
+/// chunky rather than as blurry; the bloom chain wants linear everywhere,
+/// because a quarter-resolution blur point-sampled up is a grid of squares.
+fn build_scene_bindings(
+    device: &wgpu::Device,
+    targets: &SceneTargets,
+    bloom: &BloomTargets,
+) -> (wgpu::BindGroupLayout, PostBindGroups) {
+    let point = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("scene sampler"),
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
-        // Point sampling on the upscale: this is what makes a low internal
-        // resolution read as chunky rather than blurry.
         mag_filter: wgpu::FilterMode::Nearest,
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    let linear = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("post sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    let tex = |binding: u32| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    };
+    let smp = |binding: u32| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    };
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("scene"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-        ],
+        label: Some("post"),
+        entries: &[tex(0), smp(1), tex(2), smp(3)],
     });
-    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("scene"),
-        layout: &layout,
-        entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(targets.sample_view()) },
-            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
-        ],
-    });
-    (layout, bind)
+
+    let group = |label: &'static str, source: &wgpu::TextureView, bloom_view: &wgpu::TextureView| {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(source) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&point) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(bloom_view) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&linear) },
+            ],
+        })
+    };
+
+    let groups = PostBindGroups {
+        scene: group("present", targets.sample_view(), &bloom.a_view),
+        // Slot 2 is never read by these two, but it must not name the
+        // texture the pass is writing to: a texture cannot be a colour target
+        // and a bound resource in the same pass, whether or not the shader
+        // touches it.
+        bright: group("bloom bright", targets.sample_view(), targets.sample_view()),
+        blur_h: group("bloom blur h", &bloom.a_view, &bloom.a_view),
+        blur_v: group("bloom blur v", &bloom.b_view, &bloom.b_view),
+    };
+    (layout, groups)
 }
 
 fn build_pipelines(
@@ -1517,6 +1643,9 @@ fn build_pipelines(
                         Some(depth_write(true, wgpu::CompareFunction::Greater)), Some(wgpu::Face::Back), ms),
         sprite: make("sprites", &scene_layout, "vs_sprite", "fs_sprite", &sprite_layouts, &scene_blend,
                      Some(depth_write(false, wgpu::CompareFunction::Greater)), None, ms),
+        bright: make("bloom bright", &present_layout, "vs_blit", "fs_bright", &[], &scene_target, None, None, ms_one),
+        blur_h: make("bloom blur h", &present_layout, "vs_blit", "fs_blur_h", &[], &scene_target, None, None, ms_one),
+        blur_v: make("bloom blur v", &present_layout, "vs_blit", "fs_blur_v", &[], &scene_target, None, None, ms_one),
         blit: make("blit", &present_layout, "vs_blit", "fs_blit", &[], &present_target, None, None, ms_one),
         ui: make("ui", &present_layout, "vs_ui", "fs_ui", &[ui_layout_desc], &present_blend, None, None, ms_one),
     }

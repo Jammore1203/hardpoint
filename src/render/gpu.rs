@@ -275,6 +275,50 @@ impl SceneTargets {
     }
 }
 
+/// The two quarter-resolution targets the bloom passes ping-pong between.
+///
+/// Quarter resolution in each axis, so a sixteenth of the pixels: the blur is
+/// wide and low-frequency by definition and there is nothing in it worth
+/// resolving finely. Both are the scene format, so the hardware does the sRGB
+/// decode and encode and the blur happens in linear light, which is the only
+/// way it stays neutral instead of tinting the highlights.
+pub struct BloomTargets {
+    pub a_view: wgpu::TextureView,
+    pub b_view: wgpu::TextureView,
+    pub width: u32,
+    pub height: u32,
+    _a: wgpu::Texture,
+    _b: wgpu::Texture,
+}
+
+impl BloomTargets {
+    pub fn new(device: &wgpu::Device, scene_width: u32, scene_height: u32) -> BloomTargets {
+        let width = (scene_width / 4).max(1);
+        let height = (scene_height / 4).max(1);
+        let make = |label: &str| {
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: SCENE_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+        };
+        let a = make("bloom a");
+        let b = make("bloom b");
+        let a_view = a.create_view(&Default::default());
+        let b_view = b.create_view(&Default::default());
+        BloomTargets { a_view, b_view, width, height, _a: a, _b: b }
+    }
+
+    pub fn memory_bytes(&self) -> usize {
+        (self.width * self.height) as usize * 4 * 2
+    }
+}
+
 /// A GPU buffer that grows on demand. Used for the per-frame instance and UI
 /// streams, which vary in size but never shrink much frame to frame.
 pub struct DynBuffer {
