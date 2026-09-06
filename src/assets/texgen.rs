@@ -519,6 +519,49 @@ fn gen_foliage(p: &mut Painter, tint: [u8; 3], cutout: bool, seed: u32) {
     if !cutout { p.grime(0.3, seed); }
 }
 
+/// A stack of filled sacks, not a bolt of cloth.
+///
+/// Sandbags were the plain woven generator, which gives the weave and nothing
+/// else: a sandbag wall came out as a flat sheet of hessian. What a sandbag
+/// emplacement looks like is courses of fat rounded sacks, offset row to row,
+/// with the weave running over them and dark gaps where they meet.
+fn gen_sandbag(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    let cols = 2.0f32;
+    let rows = 4.0f32;
+    p.shade_relief(tint, 0.62, |u, v| {
+        let row = (v * rows).floor();
+        let cv = (v * rows).fract();
+        // Every other course is offset half a bag, the way they are laid.
+        let cu = (u * cols + if (row as i32) % 2 == 0 { 0.0 } else { 0.5 }).fract();
+
+        // A fat rounded rectangle: distance to the bag's centre line, squashed
+        // so it is longer than it is tall.
+        let dx = ((cu - 0.5).abs() - 0.22).max(0.0) / 0.28;
+        let dy = (cv - 0.5).abs() / 0.46;
+        let d = (dx * dx + dy * dy).sqrt();
+        let bag = 1.0 - smoothstep(0.72, 1.0, d);
+        // Domed: full where the sack is fattest, falling away at the seam.
+        let dome = (1.0 - d * d).max(0.0).sqrt();
+
+        // The bags are not identical: each one settles differently.
+        let id = hash2((u * cols) as i32, row as i32, seed);
+        let slump = fbm(u * 7.0, v * 7.0, 7, 3, seed ^ 0x3C) - 0.5;
+
+        // Weave, running over whatever shape is underneath.
+        let a = (u * 34.0 * std::f32::consts::TAU).sin();
+        let b = (v * 40.0 * std::f32::consts::TAU).sin();
+        let weave = (if a > b { a } else { b }) * 0.5 + 0.5;
+        let fray = vnoise(u * 110.0, v * 110.0, 110, seed ^ 0x8A) - 0.5;
+
+        let height = bag * (dome * 0.85 + 0.15) + weave * 0.10 + slump * 0.16
+            + (id - 0.5) * 0.10 + fray * 0.05;
+        let albedo = 0.86 + bag * 0.14 + (id - 0.5) * 0.14 + slump * 0.12
+            + weave * 0.06 + fray * 0.06;
+        (albedo, height)
+    });
+    p.grime(0.5, seed);
+}
+
 /// Lake ice: a smooth pale sheet with pressure cracks and frozen bubbles.
 ///
 /// Ice shared the water generator, which is fine while water is a gentle
@@ -1181,7 +1224,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         Cobble => gen_granular(&mut p, tint, 24.0, 0.27, seed),
         WoodCrate => gen_wood(&mut p, tint, 4.0, true, seed),
         WoodPlank => gen_wood(&mut p, tint, 5.0, false, seed),
-        Sandbag => gen_woven(&mut p, tint, 5.0, 0.34, seed),
+        Sandbag => gen_sandbag(&mut p, tint, seed),
         Camo => gen_camo(&mut p, tint, seed),
         CamoDesert => gen_camo(&mut p, tint, seed ^ 0x22),
         CamoWinter => gen_camo(&mut p, tint, seed ^ 0x33),
