@@ -502,8 +502,15 @@ fn fs_blit(in: BlitOut) -> @location(0) vec4<f32> {
     let flash = G.time.z;
     let damage = G.time.w;
     if (damage > 0.0) {
-        let edge = length(in.uv - vec2<f32>(0.5, 0.5)) * 1.6;
-        c = mix(c, vec3<f32>(0.55, 0.04, 0.03), clamp(damage * edge, 0.0, 0.85));
+        // A vignette, not a wash. At full strength the old version mixed
+        // eighty-five per cent of a saturated red over the corners and most of
+        // that over the middle, which hides the thing you were about to shoot
+        // at exactly the moment you most need to see it. The curve is steeper
+        // now, so the centre of the screen stays readable and the edges carry
+        // the message.
+        let d = length((in.uv - vec2<f32>(0.5, 0.5)) * vec2<f32>(1.1, 1.0));
+        let edge = smoothstep(0.18, 0.72, d);
+        c = mix(c, vec3<f32>(0.42, 0.05, 0.04), clamp(damage * edge, 0.0, 0.62));
     }
 
     let scan = G.retro.z;

@@ -390,11 +390,17 @@ impl Renderer {
 
         let sprite_buf = DynBuffer::new(device, "sprite instances", wgpu::BufferUsages::VERTEX, 256 * 1024);
         let ui_buf = DynBuffer::new(device, "ui vertices", wgpu::BufferUsages::VERTEX, 512 * 1024);
+        // Sized for a full server up front. An instance is eighty bytes, a
+        // soldier is twenty-eight of them, and a sixteen-player match with
+        // props can put well over a thousand into a single shape's stream.
+        // Growing a GPU buffer mid-match reallocates and stalls, which shows
+        // up as exactly the sort of isolated dropped frame that is hardest to
+        // attribute later.
         let shape_bufs: Vec<DynBuffer> = (0..meshgen::PART_SHAPES)
-            .map(|_| DynBuffer::new(device, "part instances", wgpu::BufferUsages::VERTEX, 16 * 1024))
+            .map(|_| DynBuffer::new(device, "part instances", wgpu::BufferUsages::VERTEX, 192 * 1024))
             .collect();
         let vm_shape_bufs: Vec<DynBuffer> = (0..meshgen::PART_SHAPES)
-            .map(|_| DynBuffer::new(device, "viewmodel instances", wgpu::BufferUsages::VERTEX, 4 * 1024))
+            .map(|_| DynBuffer::new(device, "viewmodel instances", wgpu::BufferUsages::VERTEX, 16 * 1024))
             .collect();
 
         Ok(Renderer {

@@ -637,29 +637,37 @@ fn gen_camo(p: &mut Painter, tint: [u8; 3], seed: u32) {
     let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
     let tx = p.texel;
     let soft = (tx * 6.0).max(0.006);
-    p.shade_rgb(|u, v| {
+    // The print is flat - it is dye, not relief - so the height field is
+    // purely the weave and the creases of the cloth underneath it.
+    let mut heights: Vec<f32> = Vec::new();
+    let n = p.size as usize;
+    for y in 0..n {
+        for x in 0..n {
+            let u = x as f32 / n as f32;
+            let v = y as f32 / n as f32;
+            let weave = ((u * 150.0).sin() * (v * 150.0).sin()) * 0.5 + 0.5;
+            let crease = fbm(u * 5.0, v * 5.0, 5, 3, seed ^ 0x2C1);
+            let grain = vnoise(u * 70.0, v * 70.0, 70, seed);
+            heights.push(weave * 0.45 + (crease - 0.5) * 1.5 + (grain - 0.5) * 0.25);
+        }
+    }
+    let mut i = 0usize;
+    p.shade_relief(tint, 0.16, |u, v| {
         let a = fbm(u * 6.0, v * 6.0, 6, 4, seed);
         let b = fbm(u * 10.0, v * 10.0, 10, 4, seed ^ 0x5A5A);
         let c3 = fbm(u * 16.0, v * 16.0, 16, 3, seed ^ 0xA13);
-        // Three overlapping blob layers, edges softened by a few texels.
         let m1 = smoothstep(0.54 - soft, 0.54 + soft, a);
         let m2 = smoothstep(0.57 - soft, 0.57 + soft, b) * (1.0 - m1);
         let m3 = smoothstep(0.60 - soft, 0.60 + soft, c3) * (1.0 - m1) * (1.0 - m2);
-        let lum = 0.86 + m1 * 0.34 - m2 * 0.24 - m3 * 0.10;
-        // Fabric weave under the print.
-        let weave = ((u * 160.0).sin() * (v * 160.0).sin()) * 0.5 + 0.5;
-        let grain = vnoise(u * 70.0, v * 70.0, 70, seed);
-        let l = lum + (grain - 0.5) * 0.07 + (weave - 0.5) * 0.035;
-        // The dark blobs shift toward green, the light ones toward tan.
-        let cc = [
-            base[0] * l * (1.0 + m1 * 0.06 - m2 * 0.10),
-            base[1] * l * (1.0 + m2 * 0.06),
-            base[2] * l * (1.0 - m1 * 0.10 - m2 * 0.06),
-        ];
-        (cc, 1.0)
+        let albedo = 0.98 + m1 * 0.34 - m2 * 0.26 - m3 * 0.12;
+        let h = heights[i.min(heights.len() - 1)];
+        i += 1;
+        (albedo, h)
     });
-    p.grime(0.35, seed);
+    let _ = base;
+    p.grime(0.30, seed);
 }
+
 
 /// A lit surface: windows, screens, control panels.
 fn gen_lit(p: &mut Painter, tint: [u8; 3], cells: f32, scanlines: bool, seed: u32) {
