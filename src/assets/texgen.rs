@@ -690,6 +690,52 @@ fn gen_lit(p: &mut Painter, tint: [u8; 3], cells: f32, scanlines: bool, seed: u3
     });
 }
 
+/// Wind-worked ground: sand ripples, snow sastrugi.
+///
+/// `gen_granular` treats every loose surface as a bed of stones, which is
+/// right for gravel and wrong for the two materials that carpet whole maps.
+/// Sand and snow are not stones; they are a fluid the wind has left ridges
+/// in, and without those ridges a hundred metres of either is one flat colour
+/// with a bit of grain on it.
+///
+/// `ripple` is ridges per tile, `depth` how sharply they stand, `sparkle`
+/// the strength of the bright specks that snow has and sand does not.
+fn gen_drift(p: &mut Painter, tint: [u8; 3], ripple: f32, depth: f32,
+             sparkle: f32, seed: u32) {
+    p.shade_relief(tint, 0.30 + depth * 0.55, |u, v| {
+        // The ripple lines are dragged about by a slow field, so they curve
+        // and fork the way a dune surface does rather than running as a comb.
+        let warp = fbm(u * 2.4, v * 2.4, 2, 4, seed) - 0.5;
+        let bend = fbm(u * 6.0, v * 6.0, 6, 3, seed ^ 0x35) - 0.5;
+        let phase = (v * ripple + warp * 5.0 + bend * 1.4) * std::f32::consts::TAU;
+        // Asymmetric: a wind ridge has a long windward slope and a short lee
+        // face, and squaring the sine is the cheapest way to say so.
+        let wave = phase.sin() * 0.5 + 0.5;
+        let ridge = wave * wave;
+
+        // Where the drift is deep the ripples smooth out; where it is thin
+        // they bite. That variation is what stops the pattern reading as a
+        // printed texture.
+        let deep = fbm(u * 1.7, v * 1.7, 1, 3, seed ^ 0x9C);
+        let strength = 0.35 + deep * 0.65;
+
+        let grain = vnoise(u * 150.0, v * 150.0, 150, seed ^ 0x4D) - 0.5;
+        let mid = fbm(u * 14.0, v * 14.0, 14, 3, seed ^ 0x21) - 0.5;
+
+        let height = ridge * depth * strength + mid * 0.34 + grain * 0.13
+            + (deep - 0.5) * 0.5;
+        let mut albedo = 0.90 + ridge * 0.10 * strength + mid * 0.13 + grain * 0.07;
+        if sparkle > 0.001 {
+            // Ice crystals: a few isolated very bright texels, which is what
+            // makes snow read as snow rather than as white paper.
+            let s = vnoise(u * 210.0, v * 210.0, 210, seed ^ 0xBE);
+            albedo += smoothstep(0.86, 0.99, s) * sparkle;
+        }
+        (albedo, height)
+    });
+    p.grime(0.30, seed);
+}
+
 /// Chequer plate: raised lozenges in staggered pairs, the way real tread
 /// plate is rolled.
 ///
@@ -967,13 +1013,13 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         HullPainted => gen_panel(&mut p, tint, 2.0, true, 0.35, seed),
         PipeMetal => gen_corrugated(&mut p, tint, 3.0, seed),
         ShippingRed | ShippingBlue | ShippingGreen => gen_corrugated(&mut p, tint, 9.0, seed),
-        Sand => gen_granular(&mut p, tint, 22.0, 0.16, seed),
+        Sand => gen_drift(&mut p, tint, 7.0, 0.55, 0.0, seed),
         SandRock => gen_granular(&mut p, tint, 22.0, 0.20, seed),
         Dirt => gen_granular(&mut p, tint, 21.0, 0.22, seed),
         Gravel => gen_granular(&mut p, tint, 30.0, 0.32, seed),
         Grass => gen_foliage(&mut p, tint, false, seed),
         JungleFloor => gen_foliage(&mut p, tint, false, seed ^ 0x11),
-        Snow => gen_granular(&mut p, tint, 18.0, 0.10, seed),
+        Snow => gen_drift(&mut p, tint, 4.0, 0.42, 0.16, seed),
         SnowRock => gen_granular(&mut p, tint, 22.0, 0.18, seed),
         Asphalt => gen_granular(&mut p, tint, 30.0, 0.14, seed),
         ConcreteFloor => gen_rough(&mut p, tint, 0.09, 0.18, seed),
