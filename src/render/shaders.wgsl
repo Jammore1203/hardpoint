@@ -360,7 +360,7 @@ fn world_shade(uv_a: vec2<f32>, uv_c: vec2<f32>, color: vec4<f32>, layer: u32, w
         let t = G.time.x;
         let a = textureSample(world_tex, world_smp, uv + vec2<f32>(t * 0.014, t * 0.009), i32(layer));
         let b = textureSample(world_tex, world_smp, uv * 0.73 + vec2<f32>(t * -0.010, t * 0.017), i32(layer));
-        var wc = (a.rgb * 0.6 + b.rgb * 0.5) * color.rgb * detail_modulation(uv, world_pos);
+        var wc = (a.rgb * 0.58 + b.rgb * 0.46) * color.rgb * detail_modulation(uv, world_pos);
         let wf = fog_amount(world_pos);
         // Water is flat geometry, so its highlight has to come from somewhere
         // else: perturb the face normal by the same two scrolling layers that

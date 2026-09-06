@@ -421,7 +421,7 @@ fn gen_corrugated(p: &mut Painter, tint: [u8; 3], ribs: f32, seed: u32) {
     // A rib narrower than six texels is a moire generator whatever else is
     // done to it; cap the count to what the resolution can resolve.
     let ribs = ribs.min(1.0 / (tx * 6.0));
-    p.shade_relief(tint, 0.85, |u, v| {
+    p.shade_relief(tint, 0.55, |u, v| {
         let phase = u * ribs * std::f32::consts::TAU;
         // The profile is the height now, so the sheet is genuinely round and
         // its highlight moves with the surface rather than being painted on.
@@ -926,7 +926,11 @@ fn gen_water(p: &mut Painter, tint: [u8; 3], seed: u32) {
         let swell = fbm(u * 4.0, v * 4.0, 4, 4, seed);
         let chop = ridged(u * 14.0, v * 14.0, 14, 4, seed ^ 0x2C);
         let glint = ridged(u * 34.0, v * 34.0, 34, 2, seed ^ 0x91);
-        let lum = 0.62 + swell * 0.30 + chop * 0.24 + smoothstep(0.72, 0.95, glint) * 0.34;
+        // Water is dark with bright things on it, not bright throughout. The
+        // old balance sat everything in the top half of the range and came
+        // out as a flat sheet of cyan; most of the contrast now lives in the
+        // glints, which the sun's own highlight adds to on top.
+        let lum = 0.42 + swell * 0.26 + chop * 0.20 + smoothstep(0.68, 0.96, glint) * 0.62;
         (lum, 1.0)
     });
 }
@@ -1007,7 +1011,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         StoneWall => gen_brick(&mut p, tint, 7.0, [148, 144, 136], seed),
         MetalPanel => gen_panel(&mut p, tint, 3.0, true, 0.0, seed),
         MetalRust => gen_panel(&mut p, tint, 2.0, true, 0.9, seed),
-        MetalPlateDiamond => gen_chequer(&mut p, tint, 7.0, seed),
+        MetalPlateDiamond => gen_chequer(&mut p, tint, 15.0, seed),
         Corrugated => gen_corrugated(&mut p, tint, 12.0, seed),
         Grating => gen_grid(&mut p, tint, 7.0, 0.20, true, seed),
         HullPainted => gen_panel(&mut p, tint, 2.0, true, 0.35, seed),
