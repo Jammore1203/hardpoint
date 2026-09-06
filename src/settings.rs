@@ -301,6 +301,11 @@ impl Settings {
             post_processing: self.post_processing,
             texture_lod_bias: 0.0,
             shadows: self.shadow_quality != Quality::Low,
+            detail: match self.texture_quality {
+                Quality::Low => 0.0,
+                Quality::Medium => 0.28,
+                Quality::High => 0.36,
+            },
             particles: match self.effects_quality {
                 Quality::Low => 0.4,
                 Quality::Medium => 1.0,

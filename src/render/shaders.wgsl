@@ -160,10 +160,26 @@ fn vs_world(in: WorldIn) -> WorldOut {
     return out;
 }
 
+// A material tiles every couple of metres, so by the time you are standing
+// against a wall its highest frequency is several centimetres across and the
+// surface reads as flat colour. The detail layer is the same trick every
+// engine of this era used: a shared noise tile sampled far finer than the
+// material, modulating brightness only, faded out with distance so it never
+// becomes the thing that aliases.
+fn detail_modulation(uv: vec2<f32>, world_pos: vec3<f32>) -> f32 {
+    let strength = G.grade.x;
+    if (strength <= 0.001) { return 1.0; }
+    let d = length(world_pos - G.camera_pos.xyz);
+    let near = 1.0 - smoothstep(4.0, 22.0, d);
+    if (near <= 0.001) { return 1.0; }
+    let n = textureSample(world_tex, world_smp, uv * 6.0, i32(G.grade.y)).r;
+    return 1.0 + (n - 0.5) * strength * near;
+}
+
 fn world_shade(uv_a: vec2<f32>, uv_c: vec2<f32>, color: vec4<f32>, layer: u32, world_pos: vec3<f32>) -> vec4<f32> {
     let uv = mix(uv_c, uv_a, G.retro.y);
     var tex = textureSample(world_tex, world_smp, uv, i32(layer));
-    var c = tex.rgb * color.rgb;
+    var c = tex.rgb * color.rgb * detail_modulation(uv, world_pos);
     let f = fog_amount(world_pos);
     c = mix(c, G.fog_color.rgb, f);
     return vec4<f32>(grade(c), tex.a);

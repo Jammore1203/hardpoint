@@ -952,7 +952,8 @@ impl App {
             let speed = client.local.mv.horizontal_speed();
             let weapon = client.local.weapon().id;
             let camera = self.camera;
-            self.viewmodel.submit(&mut self.renderer, &camera, weapon, speed, self.settings.view_bob);
+            let finish = self.loadout.kit().finish;
+            self.viewmodel.submit(&mut self.renderer, &camera, weapon, speed, self.settings.view_bob, finish);
         }
         let _ = dt;
     }

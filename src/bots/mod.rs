@@ -43,7 +43,10 @@ impl Director {
         let seed = self.rng.next_u32();
         let mut bot = Bot::new(slot, self.difficulty, seed);
         let level = 5 + (seed % 40) as u8;
-        let loadout = bot.choose_loadout(level);
+        let mut loadout = bot.choose_loadout(level);
+        // Vary the kit, so a room of bots looks like a squad rather than a
+        // production run of one soldier.
+        loadout.cosmetic = (seed % crate::game::loadout::KIT_COUNT as u32) as u8;
 
         {
             let p = &mut world.players[slot as usize];

@@ -635,11 +635,15 @@ pub fn generate_world_array(size: u32) -> TextureArray {
         .map(|n| n.get())
         .unwrap_or(1)
         .clamp(1, 16)
-        .min(MAT_COUNT);
+        .min(MAT_COUNT + 1);
 
-    let mut layers: Vec<Option<LayerMips>> = (0..MAT_COUNT).map(|_| None).collect();
+    // One layer past the materials holds the shared detail noise. See
+    // `DETAIL_LAYER`: it is sampled at a much higher frequency than the
+    // material underneath, which is what stops a surface going flat and
+    // featureless as you walk up to it.
+    let mut layers: Vec<Option<LayerMips>> = (0..MAT_COUNT + 1).map(|_| None).collect();
     {
-        let chunk = MAT_COUNT.div_ceil(workers);
+        let chunk = (MAT_COUNT + 1).div_ceil(workers);
         let mut slices: Vec<&mut [Option<LayerMips>]> = layers.chunks_mut(chunk).collect();
         std::thread::scope(|s| {
             for (ci, slot) in slices.iter_mut().enumerate() {
@@ -658,7 +662,28 @@ pub fn generate_world_array(size: u32) -> TextureArray {
     TextureArray { size, mip_count, layers }
 }
 
+/// Index of the detail layer within the world texture array.
+pub const DETAIL_LAYER: u32 = MAT_COUNT as u32;
+
+/// Fine grey noise, centred on mid-grey so it modulates without tinting.
+fn gen_detail(p: &mut Painter, seed: u32) {
+    p.shade([255, 255, 255], |u, v, _, _| {
+        let a = vnoise(u * 24.0, v * 24.0, 24, seed);
+        let b = vnoise(u * 61.0, v * 61.0, 61, seed ^ 0x2F);
+        let c = vnoise(u * 149.0, v * 149.0, 149, seed ^ 0x71);
+        // Three octaves, weighted so the finest dominates: this layer exists
+        // to add the frequencies the material lost, not to add another blotch.
+        let n = 0.5 + ((a - 0.5) * 0.22 + (b - 0.5) * 0.34 + (c - 0.5) * 0.44);
+        (n, 1.0)
+    });
+}
+
 fn generate_layer(i: usize, size: u32) -> LayerMips {
+    if i == MAT_COUNT {
+        let mut p = Painter::new(size);
+        gen_detail(&mut p, 0x0D_E7A1);
+        return LayerMips { mips: build_mips(p.px, size) };
+    }
     let mat = Mat::from_index(i as u8);
     let tint = mat.tint();
     let seed = 0x1000u32.wrapping_add((i as u32).wrapping_mul(2654435761) % 100000);

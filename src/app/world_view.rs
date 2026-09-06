@@ -210,19 +210,32 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
             p.render_pos,
         );
 
+        let kit = crate::game::loadout::KITS[
+            (p.snap.kit as usize) % crate::game::loadout::KIT_COUNT];
         let tint = team_tint(team);
         for part in meshgen::ALL_PARTS {
+            // Headgear varies by kit. Only the helmet changes, and only in
+            // material and a couple of centimetres of size: team colour lives
+            // on the fatigues, and a cosmetic that changed a silhouette would
+            // be a cosmetic that decided fights.
+            if part == Part::Helmet && kit.head == 3 { continue; }
             let look = meshgen::part_look(part);
             let mat = meshgen::look_material(look, team_index);
             // Fatigues take the team colour; kit stays neutral so the
             // silhouette still reads as a soldier rather than a colour swatch.
             let color = match look {
                 PartLook::Skin => [0.72, 0.60, 0.50, 1.0],
-                PartLook::Hard => [0.66, 0.67, 0.68, 1.0],
-                PartLook::Webbing => [0.56, 0.54, 0.47, 1.0],
+                PartLook::Hard => match kit.head {
+                    1 => [0.62, 0.66, 0.52, 1.0],
+                    2 => [0.50, 0.50, 0.46, 1.0],
+                    _ => [0.66, 0.67, 0.68, 1.0],
+                },
+                PartLook::Webbing => [0.56 * kit.webbing[0], 0.54 * kit.webbing[1],
+                                      0.47 * kit.webbing[2], 1.0],
                 PartLook::Boots => [0.46, 0.44, 0.42, 1.0],
                 PartLook::Fatigues => tint,
             };
+            let mat = if part == Part::Helmet && kit.head == 2 { Mat::Camo } else { mat };
             r.push_part(PartInstance::from_matrix(
                 pose.parts[part as usize], color, mat.layer(), [1.0, 0.0, 0.0]));
         }
@@ -233,7 +246,8 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
         for wp in model.parts {
             let m = meshgen::weapon_part_matrix(pose.weapon, model_scale, wp);
             r.push_part(PartInstance::from_matrix(
-                m, [0.90, 0.90, 0.90, 1.0], wp.mat.layer(), [1.0, 0.0, 0.0]));
+                m, [0.90 * kit.finish[0], 0.90 * kit.finish[1], 0.90 * kit.finish[2], 1.0],
+                wp.mat.layer(), [1.0, 0.0, 0.0]));
         }
 
         if shadows && !dead {
@@ -378,7 +392,8 @@ impl ViewModel {
     }
 
     /// Builds the viewmodel transform in view space and pushes its parts.
-    pub fn submit(&mut self, r: &mut Renderer, camera: &Camera, weapon: WeaponId, speed: f32, bob_scale: f32) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn submit(&mut self, r: &mut Renderer, camera: &Camera, weapon: WeaponId, speed: f32, bob_scale: f32, finish: [f32; 3]) {
         let def = weapon.def();
         // Scoped weapons hide the model entirely once aimed, replaced by the
         // scope overlay, exactly as the era did it.
@@ -465,7 +480,8 @@ impl ViewModel {
 
         for part in model.parts {
             let m = meshgen::weapon_part_matrix(hands, model_scale, part);
-            r.push_viewmodel(PartInstance::from_matrix(m, [1.0, 1.0, 1.0, 1.0], part.mat.layer(), [1.0, 0.0, 0.0]));
+            r.push_viewmodel(PartInstance::from_matrix(
+                m, [finish[0], finish[1], finish[2], 1.0], part.mat.layer(), [1.0, 0.0, 0.0]));
         }
 
         // Gloved hands on the points the model declares. Inferring them from

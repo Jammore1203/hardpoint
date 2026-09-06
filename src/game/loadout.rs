@@ -50,22 +50,27 @@ impl ClassId {
             ClassId::Assault => Loadout {
                 class: self, primary: Vectra5, secondary: SidearmP9, melee: CombatKnife,
                 lethal: Frag, tactical: Flashbang, perk: Perk::SteadyHands,
+            cosmetic: 0,
             },
             ClassId::Heavy => Loadout {
                 class: self, primary: Hammerhead, secondary: Anvil44, melee: TrenchSpade,
                 lethal: Incendiary, tactical: Smoke, perk: Perk::Toughness,
+            cosmetic: 0,
             },
             ClassId::Scout => Loadout {
                 class: self, primary: Viper, secondary: Holdout, melee: CombatKnife,
                 lethal: Sticky, tactical: Smoke, perk: Perk::Lightfoot,
+            cosmetic: 0,
             },
             ClassId::Marksman => Loadout {
                 class: self, primary: Longbow, secondary: SidearmP9, melee: CombatKnife,
                 lethal: Frag, tactical: Concussion, perk: Perk::Scavenger,
+            cosmetic: 0,
             },
             ClassId::Custom => Loadout {
                 class: self, primary: Kr44, secondary: SidearmP9, melee: CombatKnife,
                 lethal: Frag, tactical: Flashbang, perk: Perk::FastHands,
+            cosmetic: 0,
             },
         }
     }
@@ -230,6 +235,44 @@ pub struct Loadout {
     pub lethal: Equipment,
     pub tactical: Equipment,
     pub perk: Perk,
+    /// Appearance, purely visual and replicated so everyone sees the same
+    /// soldier. Never affects silhouette size or hitbox: cosmetics that change
+    /// how big a target is are cosmetics that decide fights.
+    pub cosmetic: u8,
+}
+
+/// The kits a player can wear.
+///
+/// Deliberately small and deliberately readable. Each changes headgear,
+/// webbing colour and the finish on the weapon, which is enough to tell people
+/// apart in a lobby and not enough to confuse a target for a teammate at
+/// twenty metres, because team colour is carried by the fatigues and those do
+/// not change.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Kit {
+    pub name: &'static str,
+    /// Headgear: 0 helmet, 1 helmet with cover, 2 patrol cap, 3 bare with a
+    /// headset. Sizes vary by a couple of centimetres, never more.
+    pub head: u8,
+    /// Multiplier on the webbing colour.
+    pub webbing: [f32; 3],
+    /// Multiplier on the weapon's finish.
+    pub finish: [f32; 3],
+}
+
+pub const KIT_COUNT: usize = 6;
+
+pub const KITS: [Kit; KIT_COUNT] = [
+    Kit { name: "STANDARD", head: 0, webbing: [1.00, 1.00, 1.00], finish: [1.00, 1.00, 1.00] },
+    Kit { name: "COVERED",  head: 1, webbing: [0.86, 0.90, 0.78], finish: [0.92, 0.94, 0.92] },
+    Kit { name: "PATROL",   head: 2, webbing: [0.78, 0.74, 0.66], finish: [1.06, 1.02, 0.94] },
+    Kit { name: "HEADSET",  head: 3, webbing: [0.70, 0.72, 0.76], finish: [0.84, 0.86, 0.92] },
+    Kit { name: "DESERT",   head: 1, webbing: [1.06, 0.98, 0.80], finish: [1.10, 1.04, 0.88] },
+    Kit { name: "NIGHT",    head: 0, webbing: [0.62, 0.64, 0.70], finish: [0.72, 0.74, 0.80] },
+];
+
+impl Loadout {
+    pub fn kit(&self) -> &'static Kit { &KITS[(self.cosmetic as usize) % KIT_COUNT] }
 }
 
 impl Default for Loadout {
@@ -258,7 +301,7 @@ impl Loadout {
         if self.melee.def().unlock_level > max_level { self.melee = WeaponId::CombatKnife; }
     }
 
-    pub fn encode(&self) -> [u8; 7] {
+    pub fn encode(&self) -> [u8; 8] {
         [
             self.class as u8,
             self.primary as u8,
@@ -267,10 +310,11 @@ impl Loadout {
             self.lethal as u8,
             self.tactical as u8,
             self.perk as u8,
+            self.cosmetic,
         ]
     }
 
-    pub fn decode(b: [u8; 7]) -> Loadout {
+    pub fn decode(b: [u8; 8]) -> Loadout {
         Loadout {
             class: ClassId::from_u8(b[0]),
             primary: WeaponId::from_u8(b[1]),
@@ -279,6 +323,7 @@ impl Loadout {
             lethal: Equipment::from_u8(b[4]),
             tactical: Equipment::from_u8(b[5]),
             perk: Perk::from_u8(b[6]),
+            cosmetic: b[7] % KIT_COUNT as u8,
         }
     }
 }

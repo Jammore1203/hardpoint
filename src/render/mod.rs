@@ -135,6 +135,8 @@ pub struct RenderSettings {
     pub anisotropy: u8,
     pub shadows: bool,
     pub particles: f32,
+    /// Strength of the shared high-frequency detail layer, 0 disables it.
+    pub detail: f32,
 }
 
 impl Default for RenderSettings {
@@ -154,6 +156,7 @@ impl Default for RenderSettings {
             anisotropy: 8,
             shadows: true,
             particles: 1.0,
+            detail: 0.30,
         }
     }
 }
@@ -701,7 +704,12 @@ impl Renderer {
                 if self.settings.post_processing { self.settings.scanlines } else { 0.0 },
                 if self.settings.post_processing { self.settings.vignette } else { 0.0 },
             ],
-            grade: [0.0, 0.0, self.settings.exposure, self.settings.saturation],
+            grade: [
+                self.settings.detail,
+                crate::assets::texgen::DETAIL_LAYER as f32,
+                self.settings.exposure,
+                self.settings.saturation,
+            ],
         };
         self.globals.write(&self.gpu.device, &self.gpu.queue, bytemuck::bytes_of(&globals));
 

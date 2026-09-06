@@ -536,7 +536,7 @@ impl MapBuilder {
                 if d & DOOR_PX != 0 { self.wall_z_door(x + sx, z, sz, fy, STOREY, sz * 0.5, wall); }
                 else { self.wall_z(x + sx, z, sz, fy, STOREY, wall); }
             } else {
-                self.wall_z(x + sx, z, sz, fy, 1.05, wall);
+                self.wall_z(x + sx, z, sz, fy, 1.3, wall);
             }
 
             // The floor above, with the stairwell cut out of it, and the
@@ -825,12 +825,25 @@ impl MapBuilder {
 
         let top = y + storeys as f32 * STOREY;
         // Roof with a parapet: a power position that still has counterplay.
+        //
+        // The parapet is chest high rather than waist high on purpose. At a
+        // metre it stops a crouching player and nothing else, so a roof is a
+        // place you are seen from everywhere on the map; at 1.3 it is cover
+        // you stand behind and lean out of, which is what makes height worth
+        // taking rather than worth avoiding.
         let h = hole_of(storeys - 1);
         self.floor_with_hole(x, z, sx, sz, top, roof_mat, h.0, h.1, h.2, h.3);
-        self.wall_x(x, z, sx, top, 1.0, roof_mat);
-        self.wall_x(x, z + sz, sx, top, 1.0, roof_mat);
-        self.wall_z(x, z, sz, top, 1.0, roof_mat);
-        self.wall_z(x + sx, z, sz, top, 1.0, roof_mat);
+        self.wall_x(x, z, sx, top, 1.3, roof_mat);
+        self.wall_x(x, z + sz, sx, top, 1.3, roof_mat);
+        self.wall_z(x, z, sz, top, 1.3, roof_mat);
+        self.wall_z(x + sx, z, sz, top, 1.3, roof_mat);
+
+        // A head-house over the stairwell and a plant box, so the roof has
+        // something to fight around instead of being an empty rectangle.
+        self.boxx(h.0, top, h.1 - 0.9, h.2, 2.3, 0.6, roof_mat);
+        self.boxc(x + sx * 0.35, top, z + sz * 0.62,
+                  (sx * 0.28).min(3.2), 1.5, (sz * 0.24).min(2.6), roof_mat)
+            .with_scale(1.8);
     }
 
     // ------------------------------------------------------------- gameplay
