@@ -45,6 +45,22 @@ struct Globals {
     sun: [f32; 4],
     warm: [f32; 4],
     cool: [f32; 4],
+    /// Per-material gloss, four to a row because a uniform array of scalars
+    /// is padded to sixteen bytes an element on every backend that matters.
+    gloss: [[f32; 4]; MAT_ROWS],
+}
+
+/// Sixty-four materials plus the shared detail tile, four per row.
+const MAT_ROWS: usize = (crate::assets::materials::MAT_COUNT + 4) / 4;
+
+/// Packs `Mat::gloss` into the layout the shader indexes. Materials never
+/// change at runtime, so this is built once.
+fn gloss_table() -> [[f32; 4]; MAT_ROWS] {
+    let mut rows = [[0.0f32; 4]; MAT_ROWS];
+    for i in 0..crate::assets::materials::MAT_COUNT {
+        rows[i / 4][i % 4] = crate::assets::materials::Mat::from_index(i as u8).gloss();
+    }
+    rows
 }
 
 /// One billboarded or ground-aligned quad.
@@ -290,6 +306,8 @@ pub struct Renderer {
     pub stats: RenderStats,
     texture_bytes: usize,
     texture_size: u32,
+    /// Per-material gloss, packed once at start-up.
+    gloss: [[f32; 4]; MAT_ROWS],
     /// Mirror of the collision world's destruction set, for culling draws.
     destroyed: Vec<bool>,
 
@@ -444,6 +462,7 @@ impl Renderer {
             stats: RenderStats::default(),
             texture_bytes,
             texture_size,
+            gloss: gloss_table(),
             destroyed: Vec::new(),
             capture_request: false,
             captured: None,
@@ -738,6 +757,7 @@ impl Renderer {
             sun: [-env.sun_dir.x, -env.sun_dir.y, -env.sun_dir.z, env.cloud_cover],
             warm: [env.grade_warm[0], env.grade_warm[1], env.grade_warm[2], env.fog_height_falloff],
             cool: [env.grade_cool[0], env.grade_cool[1], env.grade_cool[2], env.fog_floor],
+            gloss: self.gloss,
             grade: [
                 self.settings.detail,
                 crate::assets::texgen::DETAIL_LAYER as f32,

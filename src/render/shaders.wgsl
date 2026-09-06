@@ -27,6 +27,7 @@ struct Globals {
     sun: vec4<f32>,            // direction toward the sun (xyz), cloud cover (w)
     warm: vec4<f32>,           // per-map warm tint (rgb), fog height falloff (w)
     cool: vec4<f32>,           // per-map cool tint (rgb), fog floor height (w)
+    gloss: array<vec4<f32>, 16>,   // per-material gloss, four to a row
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -93,6 +94,39 @@ fn fog_amount(world_pos: vec3<f32>) -> f32 {
 // good enough stand-in, warmed a little.
 fn G_sun_color_or_white() -> vec3<f32> {
     return mix(vec3<f32>(1.0, 0.97, 0.90), vec3<f32>(1.0), 0.35);
+}
+
+// Gloss lives four to a row because a uniform array of scalars is padded to
+// sixteen bytes an element. WGSL will not index a vector by a runtime value,
+// hence the select chain.
+fn gloss_of(layer: u32) -> f32 {
+    let row = G.gloss[layer >> 2u];
+    let i = layer & 3u;
+    return select(select(select(row.w, row.z, i == 2u), row.y, i == 1u), row.x, i == 0u);
+}
+
+// One specular lobe, shared by the world and by props.
+//
+// `lit` is the surface's own baked or vertex light, which the highlight is
+// multiplied by so a face standing in shadow does not sparkle; `fade` is the
+// fog amount, because a highlight seen through two hundred metres of haze is
+// not there. The exponent runs with gloss so that dull surfaces get a wide,
+// weak sheen and polished ones get a small hard point, and the strength runs
+// with it too -- one parameter, both ends.
+fn specular(n: vec3<f32>, world_pos: vec3<f32>, g: f32, lit: vec3<f32>, fade: f32) -> vec3<f32> {
+    if (g <= 0.005) { return vec3<f32>(0.0); }
+    let v = normalize(G.camera_pos.xyz - world_pos);
+    let h = normalize(v + G.sun.xyz);
+    let ndh = max(dot(n, h), 0.0);
+    let power = 6.0 + g * g * 220.0;
+    // Grazing angles return more light off every real material. Kept mild:
+    // a full Fresnel curve on flat brush faces reads as a bug, not a sheen.
+    let fres = 0.35 + 0.65 * pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 4.0);
+    let amount = pow(ndh, power) * g * fres * (1.0 - fade);
+    // Overcast skies have no sun to catch.
+    let clouds = 1.0 - G.sun.w * 0.7;
+    let key = dot(lit, vec3<f32>(0.299, 0.587, 0.114));
+    return G_sun_color_or_white() * amount * clouds * clamp(key, 0.0, 1.6);
 }
 
 fn grade(c: vec3<f32>) -> vec3<f32> {
@@ -254,6 +288,18 @@ fn vs_world(in: WorldIn) -> WorldOut {
 // engine of this era used: a shared noise tile sampled far finer than the
 // material, modulating brightness only, faded out with distance so it never
 // becomes the thing that aliases.
+// The world has no normal attribute -- brush faces are flat, and the baked
+// light is already in the vertex colour -- so the face normal is recovered
+// from how the world position changes across the triangle. It costs two
+// derivatives and is exact for flat geometry, which is all the world is.
+fn face_normal(world_pos: vec3<f32>) -> vec3<f32> {
+    let n = normalize(cross(dpdx(world_pos), dpdy(world_pos)));
+    // Winding and screen orientation decide the sign; the viewer decides it
+    // better.
+    let v = G.camera_pos.xyz - world_pos;
+    return select(-n, n, dot(n, v) >= 0.0);
+}
+
 fn detail_modulation(uv: vec2<f32>, world_pos: vec3<f32>) -> f32 {
     let strength = G.grade.x;
     if (strength <= 0.001) { return 1.0; }
@@ -277,12 +323,18 @@ fn world_shade(uv_a: vec2<f32>, uv_c: vec2<f32>, color: vec4<f32>, layer: u32, w
         let b = textureSample(world_tex, world_smp, uv * 0.73 + vec2<f32>(t * -0.010, t * 0.017), i32(layer));
         var wc = (a.rgb * 0.6 + b.rgb * 0.5) * color.rgb * detail_modulation(uv, world_pos);
         let wf = fog_amount(world_pos);
+        // Water is flat geometry, so its highlight has to come from somewhere
+        // else: perturb the face normal by the same two scrolling layers that
+        // move the colour, and the sun's reflection travels with the swell.
+        let wobble = vec3<f32>((a.r - 0.5) * 0.45, 1.0, (b.r - 0.5) * 0.45);
+        wc = wc + specular(normalize(wobble), world_pos, gloss_of(layer), color.rgb, wf);
         wc = mix(wc, G.fog_color.rgb, wf);
         return vec4<f32>(grade(wc), 1.0);
     }
     var tex = textureSample(world_tex, world_smp, uv, i32(layer));
     var c = tex.rgb * color.rgb * detail_modulation(uv, world_pos);
     let f = fog_amount(world_pos);
+    c = c + specular(face_normal(world_pos), world_pos, gloss_of(layer), color.rgb, f);
     c = mix(c, G.fog_color.rgb, f);
     return vec4<f32>(grade(c), tex.a);
 }
@@ -319,6 +371,7 @@ struct PartOut {
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) layer: u32,
     @location(3) world_pos: vec3<f32>,
+    @location(4) normal: vec3<f32>,
 };
 
 fn part_world(in: PartIn) -> vec3<f32> {
@@ -349,6 +402,7 @@ fn vs_part(in: PartIn) -> PartOut {
     out.color = vec4<f32>(srgb_to_linear(in.color.rgb) * part_light(n), in.color.a);
     out.layer = u32(in.params.x);
     out.world_pos = wp;
+    out.normal = n;
     return out;
 }
 
@@ -363,7 +417,11 @@ fn vs_viewmodel(in: PartIn) -> PartOut {
     let n = part_normal(in);
     out.color = vec4<f32>(srgb_to_linear(in.color.rgb) * part_light(n), in.color.a);
     out.layer = u32(in.params.x);
-    out.world_pos = G.camera_pos.xyz;
+    // View space, not world space: the fragment stage uses it to work out
+    // where the eye is relative to the surface, and fs_viewmodel is the only
+    // consumer.
+    out.world_pos = wp;
+    out.normal = n;
     return out;
 }
 
@@ -372,6 +430,7 @@ fn fs_part(in: PartOut) -> @location(0) vec4<f32> {
     var tex = textureSample(world_tex, world_smp, in.uv, i32(in.layer));
     var c = tex.rgb * in.color.rgb;
     let f = fog_amount(in.world_pos);
+    c = c + specular(normalize(in.normal), in.world_pos, gloss_of(in.layer), in.color.rgb, f);
     c = mix(c, G.fog_color.rgb, f);
     if (tex.a * in.color.a < 0.5) { discard; }
     return vec4<f32>(grade(c), 1.0);
@@ -380,7 +439,19 @@ fn fs_part(in: PartOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_viewmodel(in: PartOut) -> @location(0) vec4<f32> {
     var tex = textureSample(world_tex, world_smp, in.uv, i32(in.layer));
-    let c = tex.rgb * in.color.rgb;
+    var c = tex.rgb * in.color.rgb;
+    // The viewmodel is drawn in view space with its own projection, so its
+    // world position is meaningless and the eye is at the origin. Light it
+    // with a fixed key over the shoulder instead: the gun is the thing the
+    // player looks at for the whole match and it is worth the four lines.
+    let n = normalize(in.normal);
+    let v = normalize(-in.world_pos);
+    let h = normalize(v + normalize(vec3<f32>(-0.35, 0.78, -0.52)));
+    let g = gloss_of(in.layer);
+    if (g > 0.005) {
+        let power = 6.0 + g * g * 220.0;
+        c = c + G_sun_color_or_white() * pow(max(dot(n, h), 0.0), power) * g * 0.9;
+    }
     if (tex.a * in.color.a < 0.5) { discard; }
     return vec4<f32>(grade(c), 1.0);
 }

@@ -94,6 +94,53 @@ impl Mat {
         unsafe { std::mem::transmute::<u8, Mat>(i) }
     }
 
+    /// How sharply this surface returns a highlight, from 0 (a rag) to 1
+    /// (polished glass).
+    ///
+    /// The world has no normal maps and no material buffer; it has flat
+    /// brush faces and baked vertex light, which is exactly what the games
+    /// this one is imitating had. What those games did have, and what the
+    /// renderer was missing, is a specular term. Without one, wet asphalt,
+    /// a pane of glass, a diamond-plate catwalk and a sandbag all return
+    /// light the same way, and every surface reads as chalk. One float per
+    /// material is enough to separate them.
+    pub fn gloss(self) -> f32 {
+        use Mat::*;
+        match self {
+            // Nothing at all: fibre, foliage, loose grain.
+            Sandbag | Canvas | Camo | CamoDesert | CamoWinter | Tarp | Fabric
+            | Foliage | Grass | JungleFloor | Sand | Dirt | DirtRoad => 0.0,
+            // Masonry has a faint sheen only where it has been troweled or
+            // sealed; raw block and brick have none worth drawing.
+            Cinderblock | BrickRed | BrickPale | StoneWall | Rock | SandRock
+            | SnowRock | Gravel | Bunker => 0.04,
+            Concrete | ConcreteWorn | ConcretePanel | Plaster | ConcreteFloor
+            | Cobble | RoofTile => 0.09,
+            // Wood: sealed floorboards catch a window, packing crates do not.
+            WoodCrate | WoodPlank => 0.10,
+            WoodFloor => 0.22,
+            // Trodden snow and churned mud are both wet.
+            Snow => 0.18,
+            Mud => 0.28,
+            Asphalt => 0.16,
+            // Rubber is dark and dull but not matte.
+            Rubber | Tire => 0.12,
+            // Painted metal and steel plate: the workhorse of the palette.
+            MetalRust | BarrelRust | Corrugated => 0.20,
+            RoofMetal | Duct | Mesh | Grating | ShippingRed | ShippingBlue
+            | ShippingGreen | Barrel => 0.36,
+            MetalPanel | HullPainted | PipeMetal | RedPaint | BluePaint
+            | YellowPaint | HazardStripe | Sign => 0.48,
+            MetalPlateDiamond | ControlPanel => 0.55,
+            // The polished end.
+            TileFloor | Marble => 0.70,
+            Screen => 0.78,
+            Ice => 0.85,
+            Glass | WindowLit => 0.95,
+            WaterSurface => 0.92,
+        }
+    }
+
     /// Footstep / bullet-impact sound family. Keeping this on the material
     /// means level authors get correct audio for free.
     pub fn surface(self) -> Surface {
