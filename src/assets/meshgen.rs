@@ -137,7 +137,10 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                         let c = poly[(i + 1) % poly.len()];
                         let edge = Vec2::new(c.x - a.x, c.y - a.y);
                         if edge.length_squared() < 1e-6 { continue; }
-                        let n = Vec3::new(edge.y, 0.0, -edge.x).normalize();
+                        // The footprint runs anticlockwise seen from above, so
+                        // the outward normal of the edge a->c is the edge
+                        // turned a quarter turn the other way.
+                        let n = Vec3::new(-edge.y, 0.0, edge.x).normalize();
                         // Wound counter-clockwise seen from outside.
                         let corners = [
                             Vec3::new(a.x, y0, a.y),
@@ -431,6 +434,16 @@ fn clip_footprint(aabb: &Aabb, planes: &[[f32; 3]]) -> Vec<Vec2> {
     // Drop points the clipper duplicated at a corner.
     poly.dedup_by(|a, b| (*a - *b).length_squared() < 1e-8);
     if poly.len() > 1 && (poly[0] - poly[poly.len() - 1]).length_squared() < 1e-8 { poly.pop(); }
+    // Hand the polygon back anticlockwise seen from above, which is the
+    // winding that makes a fan of it front-facing under a +Y normal.
+    //
+    // The box corners above run the other way, and every face built from this
+    // footprint inherited that: the top fan, the reversed underside and all
+    // the side quads came out with their triangles wound against their own
+    // normals, so back-face culling threw away the surface facing the player
+    // and drew the one behind it. Every octagonal column, every chamfered
+    // corner and every diagonal wall in the game was inside out.
+    poly.reverse();
     poly
 }
 
@@ -2133,4 +2146,64 @@ pub fn weapon_model_scale(def: &crate::game::weapons::WeaponDef) -> Vec3 {
     let length = 0.88 + (def.range_far / 200.0).clamp(0.0, 1.0) * 0.30;
     let bulk = 0.92 + (def.mag as f32 / 100.0).clamp(0.0, 1.0) * 0.26;
     Vec3::new(bulk, bulk, length)
+}
+
+#[cfg(test)]
+mod winding_tests {
+    use super::*;
+    use crate::maps::build::{Corner, MapBuilder};
+    use crate::maps::MapId;
+
+    /// Every triangle must be wound so that its right-hand normal points out
+    /// of the solid it belongs to.
+    ///
+    /// The world pipeline culls back faces, so a triangle wound the wrong way
+    /// is not merely lit oddly - it vanishes, and the surface on the far side
+    /// of the brush is drawn in its place. That is what "the columns have
+    /// inside-out textures" looks like from inside the game, and it applied to
+    /// every brush built from a clipped footprint: octagonal columns,
+    /// chamfered corners, diagonal walls, cut rooms.
+    ///
+    /// Each shape here is convex and contains its own centre, so "wound
+    /// outwards" is exactly `n . (centroid - centre) > 0`.
+    #[test]
+    fn brushes_face_outwards() {
+        let cases: [(&str, Vec3, Box<dyn Fn(&mut MapBuilder)>); 4] = [
+            ("box", Vec3::new(0.0, 1.5, 0.0),
+             Box::new(|b: &mut MapBuilder| { b.boxx(-1.0, 0.0, -1.0, 2.0, 3.0, 2.0, Mat::Concrete); })),
+            ("column", Vec3::new(0.0, 1.5, 0.0),
+             Box::new(|b: &mut MapBuilder| { b.column(0.0, 0.0, 0.0, 0.9, 3.0, Mat::Concrete); })),
+            ("chamfer", Vec3::new(0.0, 1.5, 0.0),
+             Box::new(|b: &mut MapBuilder| {
+                 b.chamfer(-1.0, 0.0, -1.0, 2.0, 3.0, 2.0, 0.7, Corner::PosXNegZ, Mat::Concrete);
+             })),
+            ("diagonal wall", Vec3::new(0.0, 1.5, 0.0),
+             Box::new(|b: &mut MapBuilder| {
+                 b.wall_diag(-3.0, -2.0, 3.0, 2.0, 0.0, 3.0, 0.5, Mat::Concrete);
+             })),
+        ];
+
+        for (name, centre, make) in cases {
+            let mut b = MapBuilder::new(MapId::Junction);
+            make(&mut b);
+            let map = b.finish();
+            let mesh = build_map_mesh(&map, BakeQuality::Flat);
+            let mut backwards = 0usize;
+            let mut checked = 0usize;
+            for tri in mesh.indices.chunks_exact(3) {
+                let p: [Vec3; 3] = [
+                    Vec3::from(mesh.vertices[tri[0] as usize].pos),
+                    Vec3::from(mesh.vertices[tri[1] as usize].pos),
+                    Vec3::from(mesh.vertices[tri[2] as usize].pos),
+                ];
+                let n = (p[1] - p[0]).cross(p[2] - p[0]);
+                if n.length_squared() < 1e-12 { continue; }
+                checked += 1;
+                let out = ((p[0] + p[1] + p[2]) / 3.0) - centre;
+                if n.normalize().dot(out.normalize_or_zero()) <= 0.0 { backwards += 1; }
+            }
+            assert!(checked > 0, "{name}: no triangles generated");
+            assert_eq!(backwards, 0, "{name}: {backwards} of {checked} triangles wound inside out");
+        }
+    }
 }
