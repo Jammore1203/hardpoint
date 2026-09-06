@@ -82,7 +82,11 @@ pub enum Mat {
     Mesh,
 }
 
-pub const MAT_COUNT: usize = 64;
+/// The number of materials, and therefore the layer index the shared detail
+/// noise tile lives at. It has to be exactly the number of `Mat` variants:
+/// one short and the last material renders as the detail tile, which is how
+/// `Mesh` spent its life drawing grey noise.
+pub const MAT_COUNT: usize = Mat::Mesh as usize + 1;
 
 impl Mat {
     #[inline(always)]
@@ -282,4 +286,20 @@ impl Surface {
         }
     }
     pub const COUNT: usize = 11;
+}
+
+#[cfg(test)]
+mod material_tests {
+    use super::*;
+
+    /// `MAT_COUNT` is the texture array's layer count and the index the detail
+    /// noise lives at, so a material past the end silently renders as the
+    /// detail tile and `from_index` clamps it to Concrete.
+    #[test]
+    fn every_material_fits_in_the_array() {
+        assert_eq!(Mat::Mesh as usize + 1, MAT_COUNT, "Mesh must be the last variant");
+        for i in 0..MAT_COUNT {
+            assert_eq!(Mat::from_index(i as u8) as usize, i);
+        }
+    }
 }

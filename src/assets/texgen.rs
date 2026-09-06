@@ -690,6 +690,123 @@ fn gen_lit(p: &mut Painter, tint: [u8; 3], cells: f32, scanlines: bool, seed: u3
     });
 }
 
+/// Tyre tread: chevron blocks with a circumferential groove.
+///
+/// Rubber and tyre shared a granular noise, which on a truck wheel read as a
+/// black rectangle. Tread is what makes a wheel a wheel at ten metres.
+fn gen_tread(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    p.shade_relief(tint, 0.55, |u, v| {
+        // Two shoulder ribs and a centre groove running around the tyre.
+        let across = (v - 0.5).abs() * 2.0;
+        let groove = 1.0 - smoothstep(0.06, 0.20, (across - 0.16).abs());
+        // Chevron blocks, mirrored either side of the centre line.
+        let skew = u + (v - 0.5).abs() * 0.55;
+        let block = (skew * 7.0).fract();
+        let gap = smoothstep(0.02, 0.13, block) * (1.0 - smoothstep(0.76, 0.90, block));
+        let wear = fbm(u * 9.0, v * 9.0, 9, 3, seed) - 0.5;
+        let grain = vnoise(u * 90.0, v * 90.0, 90, seed ^ 0x4D) - 0.5;
+
+        let mut height = gap * 0.72 + 0.14;
+        height *= 1.0 - groove * 0.85;
+        height += wear * 0.10 + grain * 0.06;
+        // Rubber is nearly matte and nearly black; the pattern has to come
+        // from the relief, not from the albedo.
+        let albedo = 0.88 + wear * 0.12 + grain * 0.10 - groove * 0.10;
+        (albedo, height)
+    });
+    p.grime(0.5, seed);
+}
+
+/// An instrument panel.
+///
+/// This was `gen_lit` at six cells, which is a six-by-six grid of windows lit
+/// at random: on a shed it reads as a shed, and on a console it reads as a
+/// chessboard. Every control room in the game was panelled in chessboard.
+///
+/// What a panel of this period actually was: a dark brushed face inside a
+/// bezel, a recessed screen, two gauges, and rows of small indicator lamps in
+/// amber and green with a red one to worry about.
+fn gen_control_panel(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
+    let tx = p.texel;
+    let soft = (tx * 2.0).max(0.004);
+
+    // A rounded rectangle's distance to its own edge, positive inside.
+    let slab = |u: f32, v: f32, x0: f32, y0: f32, x1: f32, y1: f32| -> f32 {
+        (u - x0).min(x1 - u).min(v - y0).min(y1 - v)
+    };
+
+    p.shade_rgb(|u, v| {
+        // Brushed steel face: fine vertical streaks, a slow horizontal drift.
+        let brush = vnoise(u * 220.0, v * 3.0, 220, seed) * 0.16
+            + fbm(u * 6.0, v * 6.0, 6, 3, seed ^ 0x21) * 0.12;
+        let mut c = [
+            base[0] * (0.72 + brush),
+            base[1] * (0.72 + brush),
+            base[2] * (0.74 + brush),
+        ];
+
+        // Bezel around the tile, so a wall of these reads as a rack of
+        // separate units rather than one continuous surface.
+        let edge = u.min(1.0 - u).min(v).min(1.0 - v);
+        let bez = 1.0 - smoothstep(0.038, 0.038 + soft, edge);
+        // Lit on the top and left, in shadow on the bottom and right: the
+        // whole trick of a bevel, and the relief path cannot do it here
+        // because this material needs colour, not just value.
+        let lip = if u < 0.5 && v < 0.5 { 1.34 } else { 0.68 };
+        for i in 0..3 { c[i] = c[i] * (1.0 - bez) + base[i] * 0.86 * lip * bez; }
+
+        // Screen, recessed, upper left.
+        let scr = slab(u, v, 0.085, 0.075, 0.615, 0.435);
+        if scr > 0.0 {
+            let inner = smoothstep(0.0, 0.016, scr);
+            let scan = if ((v * 96.0) as i32) % 2 == 0 { 0.72 } else { 1.0 };
+            let trace = smoothstep(0.55, 0.95, ridged(u * 9.0, v * 5.0, 9, 2, seed ^ 0x7C));
+            let glow = 0.10 + trace * 0.75;
+            let lit = [0.16 + glow * 0.30, 0.30 + glow * 0.86, 0.22 + glow * 0.42];
+            for i in 0..3 {
+                c[i] = c[i] * (1.0 - inner) + lit[i] * scan * inner;
+            }
+        }
+
+        // Two gauges on the right, each a pale dial with a dark needle.
+        for (gi, (gx, gy)) in [(0.735f32, 0.175f32), (0.885, 0.175)].into_iter().enumerate() {
+            let d = ((u - gx).powi(2) + (v - gy).powi(2)).sqrt();
+            let face = 1.0 - smoothstep(0.062, 0.062 + soft, d);
+            if face > 0.0 {
+                let rim = smoothstep(0.050, 0.056, d);
+                let ang = (v - gy).atan2(u - gx);
+                let needle = 1.0 - smoothstep(0.035, 0.075,
+                    (ang - (-2.0 + gi as f32 * 0.9)).abs().min(6.283 - (ang - (-2.0 + gi as f32 * 0.9)).abs()));
+                let dial = 0.86 - rim * 0.45 - needle * 0.62 * (1.0 - rim);
+                for i in 0..3 { c[i] = c[i] * (1.0 - face) + dial * face; }
+            }
+        }
+
+        // Indicator lamps: two rows of six.
+        for row in 0..2 {
+            let ly = 0.575 + row as f32 * 0.180;
+            for i in 0..6 {
+                let lx = 0.115 + i as f32 * 0.154;
+                let d = slab(u, v, lx - 0.040, ly - 0.030, lx + 0.040, ly + 0.030);
+                if d <= 0.0 { continue; }
+                let k = hash2(i, row + 7, seed);
+                let on = k > 0.42;
+                let hue = hash2(i + 11, row, seed ^ 0x5B);
+                let col = if hue < 0.16 { [1.00f32, 0.28, 0.20] }
+                          else if hue < 0.58 { [1.00, 0.72, 0.24] }
+                          else { [0.42, 1.00, 0.46] };
+                let m = if on { 1.30 } else { 0.26 };
+                let body = smoothstep(0.0, 0.010, d);
+                for j in 0..3 { c[j] = c[j] * (1.0 - body) + col[j] * m * body; }
+            }
+        }
+
+        (c, 1.0)
+    });
+    p.grime(0.5, seed);
+}
+
 /// Water: slow ripples, no transparency (it is decorative here).
 fn gen_water(p: &mut Painter, tint: [u8; 3], seed: u32) {
     p.shade(tint, |u, v, _, _| {
@@ -808,9 +925,10 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         Glass => gen_lit(&mut p, tint, 2.0, false, seed),
         WindowLit => gen_lit(&mut p, tint, 3.0, false, seed),
         Screen => gen_lit(&mut p, tint, 1.0, true, seed),
-        ControlPanel => gen_lit(&mut p, tint, 6.0, false, seed),
+        ControlPanel => gen_control_panel(&mut p, tint, seed),
         Barrel | BarrelRust => gen_corrugated(&mut p, tint, 4.0, seed),
-        Tire | Rubber => gen_granular(&mut p, tint, 20.0, 0.10, seed),
+        Tire => gen_tread(&mut p, tint, seed),
+        Rubber => gen_granular(&mut p, tint, 34.0, 0.07, seed),
         HazardStripe => gen_stripes(&mut p, tint, [40, 38, 36], 6.0, seed),
         RedPaint | BluePaint | YellowPaint => gen_panel(&mut p, tint, 2.0, false, 0.25, seed),
         Sign => gen_panel(&mut p, tint, 1.0, false, 0.1, seed),

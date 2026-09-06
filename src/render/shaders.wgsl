@@ -27,7 +27,7 @@ struct Globals {
     sun: vec4<f32>,            // direction toward the sun (xyz), cloud cover (w)
     warm: vec4<f32>,           // per-map warm tint (rgb), fog height falloff (w)
     cool: vec4<f32>,           // per-map cool tint (rgb), fog floor height (w)
-    gloss: array<vec4<f32>, 16>,   // per-material gloss, four to a row
+    gloss: array<vec4<f32>, 17>,   // per-material gloss, four to a row
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;

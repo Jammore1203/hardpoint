@@ -883,6 +883,47 @@ pub fn stair_test(map_name: &str) -> i32 {
 /// The game ships no asset files, so the icon is generated the same way every
 /// texture is: a desktop entry needs one, and generating it at install time
 /// keeps the repository free of binaries.
+/// Writes every world material to one PNG contact sheet, in `Mat` order.
+///
+/// Textures are the one part of this game with no source file to open, so
+/// looking at them meant launching a match and finding a wall built out of
+/// the one in question. Eight to a row, index order, with the layer index
+/// printed alongside.
+pub fn write_texture_sheet(path: &str, size: u32) -> i32 {
+    use crate::assets::materials::{Mat, MAT_COUNT};
+    let cell = size.clamp(32, 256);
+    let arr = crate::assets::texgen::generate_world_array(cell);
+    const COLS: usize = 8;
+    let rows = (arr.layers.len() + COLS - 1) / COLS;
+    let (w, h) = (COLS as u32 * cell, rows as u32 * cell);
+    let mut px = vec![0u8; (w * h * 4) as usize];
+
+    for (i, layer) in arr.layers.iter().enumerate() {
+        let (cx, cy) = ((i % COLS) as u32 * cell, (i / COLS) as u32 * cell);
+        let src = &layer.mips[0];
+        for y in 0..cell {
+            for x in 0..cell {
+                let s = ((y * cell + x) * 4) as usize;
+                let d = (((cy + y) * w + cx + x) * 4) as usize;
+                px[d..d + 4].copy_from_slice(&src[s..s + 4]);
+            }
+        }
+    }
+
+    match std::fs::write(path, png::encode_rgba(w, h, &px)) {
+        Ok(()) => {
+            println!("{} -> {}x{} ({} layers at {}px)", path, w, h, arr.layers.len(), cell);
+            for i in 0..MAT_COUNT {
+                if i % 4 == 0 { print!("\n  "); }
+                print!("{:>2}:{:<16}", i, format!("{:?}", Mat::from_index(i as u8)));
+            }
+            println!("\n  {:>2}:detail", MAT_COUNT);
+            0
+        }
+        Err(e) => { eprintln!("{}: {}", path, e); 1 }
+    }
+}
+
 pub fn write_icon(path: &str, size: u32) -> i32 {
     let n = size.clamp(16, 1024);
     let mut px = vec![0u8; (n * n * 4) as usize];

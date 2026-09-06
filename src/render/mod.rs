@@ -50,8 +50,8 @@ struct Globals {
     gloss: [[f32; 4]; MAT_ROWS],
 }
 
-/// Sixty-four materials plus the shared detail tile, four per row.
-const MAT_ROWS: usize = (crate::assets::materials::MAT_COUNT + 4) / 4;
+/// Every material, four per row; must match the `gloss` array in the shader.
+const MAT_ROWS: usize = crate::assets::materials::MAT_COUNT.div_ceil(4);
 
 /// Packs `Mat::gloss` into the layout the shader indexes. Materials never
 /// change at runtime, so this is built once.
