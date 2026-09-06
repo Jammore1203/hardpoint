@@ -825,7 +825,14 @@ fn sky_visibility(map: &MapData, p: Vec3, n: Vec3) -> f32 {
             open += 0.2;
             continue;
         }
-        if !map.collision.trace_ray(origin, dir, 26.0, TraceMask::Shot).hit {
+        // Weighted by how far the ray got, not by whether it got out. Five
+        // rays answering yes or no give five levels, and five levels across a
+        // sixty-metre apron is five visible bands with hard edges between
+        // them -- the same failure the shadow penumbra had.
+        let hit = map.collision.trace_ray(origin, dir, 26.0, TraceMask::Shot);
+        if hit.hit {
+            open += 0.2 * ((hit.point - origin).length() / 26.0).clamp(0.0, 1.0);
+        } else {
             open += 0.2;
         }
     }
@@ -836,11 +843,15 @@ fn sky_visibility(map: &MapData, p: Vec3, n: Vec3) -> f32 {
 /// Short-range occlusion from four rays in the normal's hemisphere. Cheap,
 /// and enough to seat geometry into corners instead of letting it float.
 fn ambient_occlusion(map: &MapData, p: Vec3, n: Vec3) -> f32 {
-    const DIRS: [Vec3; 4] = [
+    const DIRS: [Vec3; 6] = [
         Vec3::new(0.5, 0.75, 0.43),
         Vec3::new(-0.5, 0.75, 0.43),
         Vec3::new(0.0, 0.75, -0.66),
         Vec3::new(0.0, 1.0, 0.0),
+        // Two shallower rays, which are the ones that find a wall a player is
+        // standing next to rather than a ceiling above them.
+        Vec3::new(0.80, 0.36, -0.48),
+        Vec3::new(-0.80, 0.36, -0.48),
     ];
     // Build a basis so the sample directions follow the surface.
     let up = if n.y.abs() > 0.9 { Vec3::Z } else { Vec3::Y };
@@ -854,7 +865,7 @@ fn ambient_occlusion(map: &MapData, p: Vec3, n: Vec3) -> f32 {
         let hit = map.collision.trace_ray(origin, dir, 1.1, TraceMask::Shot);
         if !hit.hit { open += 1.0; } else { open += (hit.point - origin).length() / 1.1 * 0.6; }
     }
-    (0.35 + 0.65 * (open / 4.0)).clamp(0.0, 1.0)
+    (0.35 + 0.65 * (open / 6.0)).clamp(0.0, 1.0)
 }
 
 /// Corners of one face of a box, wound counter-clockwise seen from outside.
