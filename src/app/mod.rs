@@ -590,6 +590,15 @@ impl App {
                 self.pending_shot = Some(path);
             }
         }
+        // Scripted screen visits work on their own: they are for capturing the
+        // interface, which does not need a match running behind it, and
+        // hanging them off the autoplay flag meant HARDPOINT_VISIT silently
+        // did nothing unless HARDPOINT_AUTOPLAY happened to be set too.
+        while let Some(i) = self.visits.iter().position(|(t, _)| now >= *t) {
+            let (_, screen) = self.visits.remove(i);
+            self.goto(screen);
+        }
+
         if !self.autoplay { return; }
         let prev_now = std::mem::replace(&mut self.script_last, now);
         let _ = prev_now;
@@ -625,11 +634,6 @@ impl App {
                 _ => self.goto(Screen::InGame),
             }
             self.script_step += 1;
-        }
-
-        while let Some(i) = self.visits.iter().position(|(t, _)| now >= *t) {
-            let (_, screen) = self.visits.remove(i);
-            self.goto(screen);
         }
 
         // Once in the match, drive the player around so captures are not all
