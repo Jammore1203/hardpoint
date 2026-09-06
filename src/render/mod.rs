@@ -785,14 +785,39 @@ impl Renderer {
                 rp.set_vertex_buffer(0, map.vertex.slice(..));
                 rp.set_index_buffer(map.index.slice(..), wgpu::IndexFormat::Uint32);
 
+                // Merge runs of consecutive visible clusters into one call.
+                //
+                // Neighbouring clusters are usually either both visible or
+                // both not, and the index buffer is laid out so a run of them
+                // is contiguous, so this typically turns a few hundred draws
+                // into a few dozen without weakening the culling at all: a
+                // cluster that fails the frustum test still ends the run.
                 rp.set_pipeline(&self.pipe_world);
+                let mut run: Option<std::ops::Range<u32>> = None;
                 for c in &map.clusters {
-                    if c.opaque.is_empty() { continue; }
-                    if !frustum.test_aabb(&c.bounds) { continue; }
-                    rp.draw_indexed(c.opaque.clone(), 0, 0..1);
+                    let visible = !c.opaque.is_empty() && frustum.test_aabb(&c.bounds);
+                    if visible {
+                        self.stats.clusters_drawn += 1;
+                        run = Some(match run {
+                            Some(r) if r.end == c.opaque.start => r.start..c.opaque.end,
+                            Some(r) => {
+                                rp.draw_indexed(r.clone(), 0, 0..1);
+                                self.stats.draw_calls += 1;
+                                self.stats.triangles += (r.end - r.start) / 3;
+                                c.opaque.clone()
+                            }
+                            None => c.opaque.clone(),
+                        });
+                    } else if let Some(r) = run.take() {
+                        rp.draw_indexed(r.clone(), 0, 0..1);
+                        self.stats.draw_calls += 1;
+                        self.stats.triangles += (r.end - r.start) / 3;
+                    }
+                }
+                if let Some(r) = run {
+                    rp.draw_indexed(r.clone(), 0, 0..1);
                     self.stats.draw_calls += 1;
-                    self.stats.clusters_drawn += 1;
-                    self.stats.triangles += (c.opaque.end - c.opaque.start) / 3;
+                    self.stats.triangles += (r.end - r.start) / 3;
                 }
                 // Breakables, each its own draw so one can vanish.
                 if !map.breakables.is_empty() {
@@ -806,12 +831,30 @@ impl Renderer {
                 }
 
                 rp.set_pipeline(&self.pipe_world_cutout);
+                let mut run: Option<std::ops::Range<u32>> = None;
                 for c in &map.clusters {
-                    if c.cutout.is_empty() { continue; }
-                    if !frustum.test_aabb(&c.bounds) { continue; }
-                    rp.draw_indexed(c.cutout.clone(), 0, 0..1);
+                    let visible = !c.cutout.is_empty() && frustum.test_aabb(&c.bounds);
+                    if visible {
+                        run = Some(match run {
+                            Some(r) if r.end == c.cutout.start => r.start..c.cutout.end,
+                            Some(r) => {
+                                rp.draw_indexed(r.clone(), 0, 0..1);
+                                self.stats.draw_calls += 1;
+                                self.stats.triangles += (r.end - r.start) / 3;
+                                c.cutout.clone()
+                            }
+                            None => c.cutout.clone(),
+                        });
+                    } else if let Some(r) = run.take() {
+                        rp.draw_indexed(r.clone(), 0, 0..1);
+                        self.stats.draw_calls += 1;
+                        self.stats.triangles += (r.end - r.start) / 3;
+                    }
+                }
+                if let Some(r) = run {
+                    rp.draw_indexed(r.clone(), 0, 0..1);
                     self.stats.draw_calls += 1;
-                    self.stats.triangles += (c.cutout.end - c.cutout.start) / 3;
+                    self.stats.triangles += (r.end - r.start) / 3;
                 }
             }
 

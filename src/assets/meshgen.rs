@@ -354,19 +354,34 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
         }
     }
 
+    // All the opaque geometry first, then all the cut-out geometry, rather
+    // than interleaving the two per cluster.
+    //
+    // The layout is what lets the renderer merge draws. Clusters are visited
+    // in order, and neighbouring ones are usually either both visible or both
+    // not; with opaque and cut-out interleaved, two consecutive visible
+    // clusters' opaque ranges are separated by a cut-out range and cannot be
+    // submitted as one call. Separated, a run of visible clusters is a single
+    // contiguous range of indices and a single draw.
+    let live: Vec<usize> = (0..cell_count)
+        .filter(|ci| !opaque_by_cell[*ci].is_empty() || !cutout_by_cell[*ci].is_empty())
+        .collect();
+
     let mut indices: Vec<u32> = Vec::with_capacity(vertices.len() * 3);
-    let mut clusters = Vec::with_capacity(cell_count);
-    for ci in 0..cell_count {
-        if opaque_by_cell[ci].is_empty() && cutout_by_cell[ci].is_empty() { continue; }
-        let o_start = indices.len() as u32;
+    let mut opaque_ranges = Vec::with_capacity(live.len());
+    for &ci in &live {
+        let start = indices.len() as u32;
         indices.extend_from_slice(&opaque_by_cell[ci]);
-        let o_end = indices.len() as u32;
+        opaque_ranges.push(start..indices.len() as u32);
+    }
+    let mut clusters = Vec::with_capacity(live.len());
+    for (k, &ci) in live.iter().enumerate() {
+        let start = indices.len() as u32;
         indices.extend_from_slice(&cutout_by_cell[ci]);
-        let c_end = indices.len() as u32;
         clusters.push(Cluster {
             bounds: cell_bounds[ci],
-            opaque: o_start..o_end,
-            cutout: o_end..c_end,
+            opaque: opaque_ranges[k].clone(),
+            cutout: start..indices.len() as u32,
         });
     }
 
