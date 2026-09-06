@@ -57,6 +57,13 @@ struct Globals {
 /// windows, muzzle flashes, the sun and its glare, and nothing else.
 const BLOOM_THRESHOLD: f32 = 0.85;
 
+/// How far away a decal is still drawn.
+///
+/// Blood is small and dark; past this it is a couple of pixels that the fog
+/// has most of anyway, and there are far too many of them to spend the
+/// instance on. Generous enough that it is never seen to arrive.
+const DECAL_RANGE: f32 = 70.0;
+
 /// Every material, four per row; must match the `gloss` array in the shader.
 const MAT_ROWS: usize = crate::assets::materials::MAT_COUNT.div_ceil(4);
 
@@ -341,6 +348,11 @@ pub struct Renderer {
     parts: Vec<Vec<PartInstance>>,
     viewmodel: Vec<Vec<PartInstance>>,
     pub sprites: Vec<SpriteInstance>,
+    /// Decals, kept apart from the other sprites because they are permanent
+    /// and there are a great many of them. Only the ones on screen are turned
+    /// into instances, and that test needs the frustum, which does not exist
+    /// until the frame is being drawn.
+    decals: Vec<SpriteInstance>,
     pub ui: Vec<UiVertex>,
 
     pub map: Option<MapGpu>,
@@ -367,6 +379,9 @@ pub struct RenderStats {
     pub clusters_drawn: u32,
     pub clusters_total: u32,
     pub sprites: u32,
+    /// Decals held, and how many of those were drawn this frame.
+    pub decals_held: u32,
+    pub decals_drawn: u32,
     pub ui_quads: u32,
 }
 
@@ -507,6 +522,7 @@ impl Renderer {
             parts: (0..meshgen::PART_SHAPES).map(|_| Vec::with_capacity(256)).collect(),
             viewmodel: (0..meshgen::PART_SHAPES).map(|_| Vec::with_capacity(32)).collect(),
             sprites: Vec::with_capacity(2048),
+            decals: Vec::with_capacity(4096),
             ui: Vec::with_capacity(8192),
             map: None,
             font,
@@ -730,6 +746,7 @@ impl Renderer {
         for p in self.parts.iter_mut() { p.clear(); }
         for p in self.viewmodel.iter_mut() { p.clear(); }
         self.sprites.clear();
+        self.decals.clear();
         self.ui.clear();
         self.stats = RenderStats::default();
     }
@@ -744,6 +761,12 @@ impl Renderer {
     }
     #[inline]
     pub fn push_sprite(&mut self, s: SpriteInstance) { self.sprites.push(s); }
+
+    /// Queues a decal. Unlike a sprite this is not necessarily drawn: decals
+    /// are permanent, a busy match leaves tens of thousands of them, and all
+    /// but the handful in front of the player are discarded once the frustum
+    /// for the frame is known.
+    pub fn push_decal(&mut self, s: SpriteInstance) { self.decals.push(s); }
 
     /// Draws the frame and presents it.
     pub fn render(&mut self, camera: &Camera, env: &Env, time: f32, flash: f32, damage: f32) -> Result<(), wgpu::SurfaceError> {
@@ -848,6 +871,36 @@ impl Renderer {
         }
         for (i, list) in self.viewmodel.iter().enumerate() {
             self.vm_shape_bufs[i].write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(list));
+        }
+        // Decals into instances, now that there is a frustum to test against.
+        //
+        // Blood does not wash off, so by the end of a match there are of the
+        // order of a hundred thousand of these. Submitting them all cost
+        // seven megabytes of instance data a frame and showed up as a hitch
+        // that got worse the longer the match ran. Almost none of them are on
+        // screen at any moment: one behind the player, or on the far side of
+        // the wall they are looking at, is worth nothing.
+        {
+            let eye = camera.position;
+            let before = self.sprites.len();
+            self.stats.decals_held = self.decals.len() as u32;
+            for d in &self.decals {
+                let pos = Vec3::from(d.pos);
+                let to_eye = eye - pos;
+                let dist_sq = to_eye.length_squared();
+                // Ordered cheapest test first, because this loop is walked
+                // once per decal per frame and most of them fail it.
+                if dist_sq > DECAL_RANGE * DECAL_RANGE { continue; }
+                // A decal is stuck to a surface; if that surface faces away
+                // from the eye, it is on the back of something.
+                let normal = Vec3::new(d._pad[0], d._pad[1], d._pad[2]);
+                if normal.dot(to_eye) <= 0.0 { continue; }
+                // The quad's corner is half its width from the middle in both
+                // directions, so the diagonal bounds it.
+                if !frustum.test_sphere(pos, d.size[0] * 0.75) { continue; }
+                self.sprites.push(*d);
+            }
+            self.stats.decals_drawn = (self.sprites.len() - before) as u32;
         }
         self.sprite_buf.write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(&self.sprites));
         self.ui_buf.write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(&self.ui));

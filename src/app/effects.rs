@@ -15,21 +15,27 @@ use crate::render::{Renderer, SpriteInstance};
 use glam::Vec3;
 
 const MAX_PARTICLES: usize = 3000;
-/// Decals are what is left behind when the shooting stops, and in a game
-/// about clones being shot there is a great deal of it. The pool is large
-/// enough that a whole round's worth of blood accumulates rather than
-/// evaporating behind the player - a contested corridor should be unpleasant
-/// to walk back down.
+/// A ceiling, not a budget.
 ///
-/// Three thousand quads is nothing to draw. The cost of a decal is the ray
-/// that found the surface for it, and that is paid once when it lands.
-const MAX_DECALS: usize = 3000;
+/// Blood is permanent, and fourteen bots fighting in a warehouse lay them
+/// down at about five hundred and fifty a second, so a long match gets into
+/// six figures. This is set high enough that no match reaches it - it exists
+/// so that a server left running for hours cannot grow without bound, not to
+/// ration what a player sees.
+///
+/// Holding them is cheap: sixty-odd bytes each, so even a full pool is tens
+/// of megabytes. Drawing them is what had to be solved, and that is done by
+/// the renderer, which turns only the ones actually on screen into instances.
+const MAX_DECALS: usize = 400_000;
 const MAX_TRACERS: usize = 96;
 
-/// How long blood stays. Long enough that a busy corridor is still marked
-/// when the fight comes back through it, which for a round of this length
-/// means effectively for good; the pool size is what actually limits it.
-const BLOOD_LIFE: f32 = 600.0;
+/// Blood does not go away.
+///
+/// Infinity rather than a large number, because both the expiry test and the
+/// fade fall out of it correctly: `life >= max_life` is never true, and
+/// `life / max_life` is zero, so a splatter laid in the first second of a
+/// match is as dark in the last one. Only a new map clears it.
+const BLOOD_LIFE: f32 = f32::INFINITY;
 
 #[derive(Clone, Copy)]
 struct Particle {
@@ -93,7 +99,7 @@ impl Effects {
     pub fn new() -> Effects {
         Effects {
             particles: Vec::with_capacity(MAX_PARTICLES),
-            decals: Vec::with_capacity(MAX_DECALS),
+            decals: Vec::with_capacity(4096),
             next_decal: 0,
             tracers: Vec::with_capacity(MAX_TRACERS),
             rng: Rng::from_clock(),
@@ -812,7 +818,7 @@ impl Effects {
             let fade = if t > 0.75 { 1.0 - (t - 0.75) / 0.25 } else { 1.0 };
             let mut c = d.color;
             c[3] *= fade;
-            r.push_sprite(SpriteInstance::decal(d.pos, d.normal, d.size, d.rot, d.sprite, c));
+            r.push_decal(SpriteInstance::decal(d.pos, d.normal, d.size, d.rot, d.sprite, c));
         }
 
         for p in self.particles.iter().chain(self.weather.iter()) {

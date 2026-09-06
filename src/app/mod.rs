@@ -754,9 +754,9 @@ impl App {
         let (iw, ih) = self.renderer.internal_size();
         println!("[gpu] {} ({})", self.renderer.adapter_name(), self.renderer.backend());
         println!(
-            "[scene] {}x{}  {} draws  {} tris  {}/{} clusters  {} sprites  {} ui               {:.0} MB textures",
+            "[scene] {}x{}  {} draws  {} tris  {}/{} clusters  {} sprites  {}/{} decals  {} ui   {:.0} MB textures",
             iw, ih, st.draw_calls, st.triangles, st.clusters_drawn, st.clusters_total,
-            st.sprites, st.ui_quads,
+            st.sprites, st.decals_drawn, st.decals_held, st.ui_quads,
             self.renderer.texture_memory() as f32 / (1024.0 * 1024.0),
         );
 
