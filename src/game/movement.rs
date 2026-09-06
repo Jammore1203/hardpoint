@@ -505,10 +505,15 @@ fn resolve_penetration(st: &mut MoveState, world: &CollisionWorld) -> bool {
         let mut push = Vec3::ZERO;
         let mut worst = 0.0f32;
         world.grid.query_aabb(&body, |bi| {
+            if world.is_destroyed(bi) { return; }
             let b = &world.brushes[bi as usize];
             if !b.is_solid() { return; }
             let solid = b.sweep_box();
             if !solid.overlaps(&body) { return; }
+            // A clipped brush occupies only part of its bounding box. Pushing
+            // out of the whole box shoves players out of the empty corner
+            // beside an angled wall, which reads as being stuck on nothing.
+            if !b.footprint_overlaps(body.center(), body.half()) { return; }
             let mtv = depenetrate(&body, &solid);
             let len = mtv.length();
             if len > worst { worst = len; push = mtv; }

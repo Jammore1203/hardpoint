@@ -1052,6 +1052,14 @@ fn greenline(b: &mut MapBuilder) {
         outcrop(b, x, 0.0, z, w, h, Mat::Rock);
     }
 
+    // --- Ridges running across the diagonals, which the trees never touched.
+    // Short segments with gaps between them: a ridge that cuts the diagonal
+    // without walling the dish pads off from the rest of the map.
+    b.wall_diag(-24.0, -14.0, -16.0, -22.0, 0.0, 3.6, 2.4, Mat::Rock);
+    b.wall_diag(24.0, 14.0, 16.0, 22.0, 0.0, 3.6, 2.4, Mat::Rock);
+    b.wall_diag(-26.0, 16.0, -18.0, 24.0, 0.0, 3.2, 2.4, Mat::Rock);
+    b.wall_diag(26.0, -16.0, 18.0, -24.0, 0.0, 3.2, 2.4, Mat::Rock);
+
     // --- Perimeter undergrowth, so the edge of the playspace is jungle and
     //     not a running track around it.
     for i in 0..5 {
@@ -1589,6 +1597,16 @@ fn drydock(b: &mut MapBuilder) {
         b.container(x, 2.65, z, along, Mat::ShippingRed);
     }
 
+    // --- Slipway walls, set at an angle to the basin so the quay diagonals
+    //     terminate in something.
+    b.wall_diag(-44.0, -20.0, -30.0, -33.0, 0.0, 4.0, 1.0, Mat::Concrete);
+    b.wall_diag(44.0, 20.0, 30.0, 33.0, 0.0, 4.0, 1.0, Mat::Concrete);
+    b.wall_diag(-44.0, 20.0, -30.0, 33.0, 0.0, 3.2, 1.0, Mat::Corrugated);
+    b.wall_diag(44.0, -20.0, 30.0, -33.0, 0.0, 3.2, 1.0, Mat::Corrugated);
+    for (cx, cz) in [(-38.0f32, -26.0f32), (38.0, 26.0), (-38.0, 26.0), (38.0, -26.0)] {
+        b.column(cx, 0.0, cz, 1.2, 5.0, Mat::PipeMetal);
+    }
+
     // --- Keel blocks and staging in the basin channels, which ran the full
     //     seventy-two metres either side of the hull.
     for (x, z) in [(-30.0f32, -13.0f32), (-14.0, -13.0), (4.0, -13.0), (24.0, -13.0),
@@ -1689,11 +1707,33 @@ fn foundry(b: &mut MapBuilder) {
 
     // --- Four furnaces: enormous hard cover in the quadrants.
     for (fx, fz) in [(-20.0f32, -20.0f32), (14.0, -20.0), (-20.0, 14.0), (14.0, 14.0)] {
-        b.boxx(fx, 0.0, fz, 8.0, 7.0, 8.0, Mat::MetalRust).with_scale(3.5);
+        // Chamfered, so rounding a furnace is a curve rather than a right
+        // angle you are briefly inside.
+        b.chamfer(fx, 0.0, fz, 8.0, 7.0, 8.0, 2.2, Corner::NegXNegZ, Mat::MetalRust)
+            .with_scale(3.5);
+        b.chamfer(fx, 0.0, fz, 8.0, 7.0, 8.0, 2.2, Corner::PosXPosZ, Mat::MetalRust)
+            .with_scale(3.5);
         b.decor(fx - 1.0, 7.0, fz - 1.0, 10.0, 1.2, 10.0, Mat::MetalPanel);
         b.decor(fx + 3.0, 8.2, fz + 3.0, 2.0, 6.8, 2.0, Mat::Duct);
         // No way onto a furnace roof: they are cover and silhouette, not a
         // position. The catwalks above are where height is fought over.
+    }
+
+    // --- Conveyor galleries on the diagonals.
+    //
+    // Everything on this map meets at ninety degrees, so the corner-to-corner
+    // diagonals were the longest lines left once the axes were dealt with. A
+    // wall that runs at forty-five cuts both of them and cannot be produced by
+    // any arrangement of boxes.
+    // Stopped short of the walls and the furnaces at both ends, so the ring
+    // corridor still runs behind them.
+    b.wall_diag(-21.0, -12.0, -12.0, -21.0, 0.0, 4.6, 1.0, Mat::MetalRust);
+    b.wall_diag(12.0, 21.0, 21.0, 12.0, 0.0, 4.6, 1.0, Mat::MetalRust);
+    b.wall_diag(-21.0, 12.0, -12.0, 21.0, 0.0, 3.4, 1.0, Mat::Cinderblock);
+    b.wall_diag(12.0, -21.0, 21.0, -12.0, 0.0, 3.4, 1.0, Mat::Cinderblock);
+    // Their supports double as cover at ground level.
+    for (cx, cz) in [(-16.5f32, -16.5f32), (16.5, 16.5), (-16.5, 16.5), (16.5, -16.5)] {
+        b.column(cx, 0.0, cz, 1.0, 4.6, Mat::PipeMetal);
     }
 
     // --- Ladle cars, moulds and stock, in the aisles between the furnaces and

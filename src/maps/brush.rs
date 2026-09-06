@@ -204,6 +204,24 @@ impl Brush {
         }
     }
 
+    /// True if an axis-aligned box could overlap this brush's footprint.
+    ///
+    /// Conservative on purpose. Each clip plane is tested against the box's
+    /// nearest corner along that plane's normal: if the whole box is outside
+    /// any one plane there is definitely no overlap, and otherwise we assume
+    /// there is. Sampling a handful of points instead - which is what this
+    /// used to do - misses a thin diagonal wall passing between the samples,
+    /// and navigation then places a node inside it.
+    #[inline]
+    pub fn footprint_overlaps(&self, centre: Vec3, half: Vec3) -> bool {
+        for p in self.clips() {
+            let nearest = p[0] * centre.x + p[1] * centre.z
+                - (p[0].abs() * half.x + p[1].abs() * half.z);
+            if nearest > p[2] { return false; }
+        }
+        true
+    }
+
     /// True if the column at `(x, z)` is within this brush's footprint.
     #[inline]
     pub fn covers_xz(&self, x: f32, z: f32) -> bool {
@@ -529,16 +547,7 @@ impl CollisionWorld {
             if !self.live(bi, mask) { return; }
             let br = &self.brushes[bi as usize];
             if !br.sweep_box().overlaps(b) { return; }
-            if !br.clips().is_empty() {
-                let c = b.center();
-                let r = b.half();
-                let corners = [
-                    (c.x - r.x, c.z - r.z), (c.x + r.x, c.z - r.z),
-                    (c.x + r.x, c.z + r.z), (c.x - r.x, c.z + r.z),
-                    (c.x, c.z),
-                ];
-                if !corners.iter().any(|(x, z)| br.covers_xz(*x, *z)) { return; }
-            }
+            if !br.footprint_overlaps(b.center(), b.half()) { return; }
             hit = true;
         });
         hit
@@ -566,16 +575,7 @@ impl CollisionWorld {
             if b.aabb.max.y <= feet.y + step { return; }
             if !b.aabb.overlaps(&body) { return; }
             // A clipped brush only blocks where its footprint actually is.
-            if !b.clips().is_empty() {
-                let c = body.center();
-                let r = body.half();
-                let corners = [
-                    (c.x - r.x, c.z - r.z), (c.x + r.x, c.z - r.z),
-                    (c.x + r.x, c.z + r.z), (c.x - r.x, c.z + r.z),
-                    (c.x, c.z),
-                ];
-                if !corners.iter().any(|(x, z)| b.covers_xz(*x, *z)) { return; }
-            }
+            if !b.footprint_overlaps(body.center(), body.half()) { return; }
             ok = false;
         });
         ok
