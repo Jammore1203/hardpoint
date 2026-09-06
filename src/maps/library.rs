@@ -417,6 +417,15 @@ fn ironveil(b: &mut MapBuilder) {
     truck(b, -21.0, 0.05, 16.0, true, Mat::Camo);
     b.crates(-29.0, 0.05, 27.0, 1.2, 2, Mat::WoodCrate);
 
+    // --- Octagonal fuel columns and chamfered revetments: the first shapes on
+    //     this map that are not boxes.
+    for (cx, cz) in [(20.0f32, -6.0f32), (20.0, 6.0), (-20.0, -6.0), (-20.0, 6.0)] {
+        b.column(cx, 0.05, cz, 1.5, 6.5, Mat::PipeMetal);
+        b.column(cx, 6.55, cz, 1.1, 0.6, Mat::MetalRust);
+    }
+    b.wall_diag(-16.0, -20.0, -6.0, -30.0, 0.05, 4.2, 0.6, Mat::ConcretePanel);
+    b.wall_diag(16.0, 20.0, 6.0, 30.0, 0.05, 4.2, 0.6, Mat::ConcretePanel);
+
     // --- Mid: a maintenance hall straddling the runway.
     //
     // A ninety-six metre strip of asphalt with nothing on it is one sightline

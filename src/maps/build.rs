@@ -7,7 +7,7 @@
 //! thickness, doorway height, step size), which is a large part of why the
 //! set feels like one game.
 
-use super::brush::{Brush, BrushFlags, BrushKind, CollisionWorld, FaceMask, RampAxis, TraceMask};
+use super::brush::{Brush, BrushFlags, BrushKind, Clips, CollisionWorld, FaceMask, RampAxis, TraceMask};
 use crate::core::Rng;
 use super::nav::NavGrid;
 use super::{Env, MapData, MapId};
@@ -417,6 +417,92 @@ impl MapBuilder {
     /// A vertical pillar or support column.
     pub fn pillar(&mut self, cx: f32, y: f32, cz: f32, w: f32, h: f32, mat: Mat) -> &mut Brush {
         self.boxc(cx, y, cz, w, h, w, mat)
+    }
+
+    /// A block with one vertical corner cut off at 45 degrees.
+    ///
+    /// The cheapest way to stop a building being a box: chamfered corners read
+    /// as architecture, and they stop a player rounding a corner from being
+    /// briefly inside the wall's silhouette.
+    #[allow(clippy::too_many_arguments)]
+    pub fn chamfer(&mut self, x: f32, y: f32, z: f32, sx: f32, sy: f32, sz: f32,
+                   cut: f32, corner: Corner, mat: Mat) -> &mut Brush {
+        let (x1, z1) = (x + sx, z + sz);
+        let cut = cut.min(sx * 0.98).min(sz * 0.98);
+        let mid = glam::Vec2::new(x + sx * 0.5, z + sz * 0.5);
+        let clips = match corner {
+            Corner::NegXNegZ => Clips::new().cut(x + cut, z, x, z + cut, mid),
+            Corner::PosXNegZ => Clips::new().cut(x1 - cut, z, x1, z + cut, mid),
+            Corner::PosXPosZ => Clips::new().cut(x1 - cut, z1, x1, z1 - cut, mid),
+            Corner::NegXPosZ => Clips::new().cut(x + cut, z1, x, z1 - cut, mid),
+        };
+        let b = self.boxx(x, y, z, sx, sy, sz, mat);
+        b.kind = BrushKind::Clipped(clips);
+        b
+    }
+
+    /// An octagonal column: a box with all four corners cut.
+    ///
+    /// Eight sides is as round as anything gets here, and it is exact for both
+    /// collision and rendering rather than a box pretending to be a cylinder.
+    pub fn column(&mut self, cx: f32, y: f32, cz: f32, r: f32, h: f32, mat: Mat) -> &mut Brush {
+        let c = r * 0.586; // 45-degree chamfer that makes a regular octagon
+        let mid = glam::Vec2::new(cx, cz);
+        let (x0, z0, x1, z1) = (cx - r, cz - r, cx + r, cz + r);
+        let clips = Clips::new()
+            .cut(x0 + c, z0, x0, z0 + c, mid)
+            .cut(x1 - c, z0, x1, z0 + c, mid)
+            .cut(x1 - c, z1, x1, z1 - c, mid)
+            .cut(x0 + c, z1, x0, z1 - c, mid);
+        let b = self.boxx(x0, y, z0, r * 2.0, h, r * 2.0, mat);
+        b.kind = BrushKind::Clipped(clips);
+        b.tex_scale = 1.8;
+        b
+    }
+
+    /// A wall running along an arbitrary line rather than an axis.
+    ///
+    /// Four clip planes turn the bounding box into the rotated box the wall
+    /// actually is, so a diagonal wall collides exactly where it is drawn.
+    /// Every street in the game ran at right angles before this existed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn wall_diag(&mut self, x0: f32, z0: f32, x1: f32, z1: f32,
+                     y: f32, h: f32, thick: f32, mat: Mat) -> &mut Brush {
+        let (dx, dz) = (x1 - x0, z1 - z0);
+        let len = (dx * dx + dz * dz).sqrt().max(1e-4);
+        let (ux, uz) = (dx / len, dz / len);
+        // Perpendicular offset for the two long faces.
+        let (px, pz) = (-uz * thick * 0.5, ux * thick * 0.5);
+        let mid = glam::Vec2::new((x0 + x1) * 0.5, (z0 + z1) * 0.5);
+        let clips = Clips::new()
+            .cut(x0 + px, z0 + pz, x1 + px, z1 + pz, mid)
+            .cut(x0 - px, z0 - pz, x1 - px, z1 - pz, mid)
+            .cut(x0 + px, z0 + pz, x0 - px, z0 - pz, mid)
+            .cut(x1 + px, z1 + pz, x1 - px, z1 - pz, mid);
+        let (lo_x, hi_x) = (x0.min(x1) - thick, x0.max(x1) + thick);
+        let (lo_z, hi_z) = (z0.min(z1) - thick, z0.max(z1) + thick);
+        let b = self.boxx(lo_x, y, lo_z, hi_x - lo_x, h, hi_z - lo_z, mat);
+        b.kind = BrushKind::Clipped(clips);
+        b
+    }
+
+    /// A room whose corners are cut, so the interior reads as a shape rather
+    /// than a cube. Doors follow the same bitmask as `room`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn chamfered_room(&mut self, x: f32, z: f32, sx: f32, sz: f32, y: f32, h: f32,
+                          doors: u8, cut: f32, wall_mat: Mat, floor_mat: Mat, ceil: bool) {
+        self.room(x, z, sx, sz, y, h, doors, wall_mat, floor_mat, ceil);
+        // Fill each corner with a chamfered block, which reads as a pillar
+        // inside and a cut corner outside.
+        let c = cut.max(0.6);
+        for (corner, cx, cz) in [
+            (Corner::PosXPosZ, x, z),
+            (Corner::NegXPosZ, x + sx - c, z),
+            (Corner::PosXNegZ, x, z + sz - c),
+            (Corner::NegXNegZ, x + sx - c, z + sz - c),
+        ] {
+            self.chamfer(cx, y, cz, c, h, c, c, corner, wall_mat);
+        }
     }
 
     /// Chest-high freestanding cover: the single most useful piece in the set.
@@ -943,3 +1029,7 @@ pub const DOOR_NZ: u8 = 1 << 2;
 pub const DOOR_PZ: u8 = 1 << 3;
 pub const DOOR_ALL: u8 = 0b1111;
 pub const DOOR_NONE: u8 = 0;
+
+/// Which horizontal corner of a block a chamfer removes.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Corner { NegXNegZ, PosXNegZ, PosXPosZ, NegXPosZ }

@@ -13,7 +13,7 @@ use crate::maps::brush::{BrushFlags, BrushKind, FaceMask, RampAxis, TraceMask};
 use crate::maps::{Env, MapData};
 use crate::math::Aabb;
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 /// A world-geometry vertex. Twenty-eight bytes; a whole level is typically
 /// under a megabyte, which fits in cache-friendly territory.
@@ -103,6 +103,43 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                         faces.push(Face { corners, normal, uvs, mat, light_scale: b.light_scale, cutout, no_shadow });
                     }
                 }
+                BrushKind::Clipped(clips) => {
+                    // A box cut by vertical planes is a convex polygon in XZ
+                    // extruded between two heights, so the geometry is that
+                    // polygon on top, the same polygon underneath, and one
+                    // quad per edge. Clipping the footprint once and walking
+                    // its edges is both simpler and more robust than trying to
+                    // clip six box faces individually.
+                    let poly = clip_footprint(&b.aabb, clips.slice());
+                    if poly.len() < 3 { continue; }
+                    let (y0, y1) = (b.aabb.min.y, b.aabb.max.y);
+
+                    if b.faces.has(FaceMask::POS_Y) {
+                        let c: Vec<Vec3> = poly.iter().map(|p| Vec3::new(p.x, y1, p.y)).collect();
+                        push_fan(&mut faces, &c, Vec3::Y, b, b.top, false, cutout, no_shadow);
+                    }
+                    if b.faces.has(FaceMask::NEG_Y) {
+                        let c: Vec<Vec3> = poly.iter().rev().map(|p| Vec3::new(p.x, y0, p.y)).collect();
+                        push_fan(&mut faces, &c, Vec3::NEG_Y, b, b.mat, true, cutout, no_shadow);
+                    }
+                    for i in 0..poly.len() {
+                        let a = poly[i];
+                        let c = poly[(i + 1) % poly.len()];
+                        let edge = Vec2::new(c.x - a.x, c.y - a.y);
+                        if edge.length_squared() < 1e-6 { continue; }
+                        let n = Vec3::new(edge.y, 0.0, -edge.x).normalize();
+                        // Wound counter-clockwise seen from outside.
+                        let corners = [
+                            Vec3::new(a.x, y0, a.y),
+                            Vec3::new(c.x, y0, c.y),
+                            Vec3::new(c.x, y1, c.y),
+                            Vec3::new(a.x, y1, a.y),
+                        ];
+                        let uvs = side_uvs(&corners, b.tex_scale);
+                        faces.push(Face { corners, normal: n, uvs, mat: b.mat,
+                                          light_scale: b.light_scale, cutout, no_shadow });
+                    }
+                }
                 BrushKind::Ramp(ax) => {
                     // Sloped top plus the four sides beneath it.
                     let (c, n) = ramp_top(&b.aabb, ax);
@@ -124,6 +161,50 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                 }
             }
         }
+    }
+
+    // ------------------------------------------------- hidden face removal
+    //
+    // Map brushes overlap constantly - a wall sunk into a floor, a shed
+    // dropped on an apron, two blocks sharing a corner - and every face buried
+    // inside another solid was still being built and drawn. Coplanar or nearly
+    // coplanar, those faces fight the surface in front of them and show
+    // through it as a patch of the wrong texture. Dropping them fixes that at
+    // the source and takes a chunk of geometry out with it.
+    //
+    // A face is buried when every corner, nudged just inside its own surface,
+    // is inside some other opaque brush. Sampling the corners rather than only
+    // the centre keeps a face that is only partly covered.
+    {
+        let solids: Vec<&crate::maps::brush::Brush> = map.brushes.iter()
+            .filter(|b| b.is_solid() && b.flags.contains(BrushFlags::OPAQUE)
+                        && !b.flags.contains(BrushFlags::CUTOUT)
+                        && !matches!(b.kind, BrushKind::Ramp(_)))
+            .collect();
+        let grid = &map.collision.grid;
+        faces.retain(|f| {
+            if f.cutout { return true; }
+            let inset = f.normal * -0.02;
+            f.corners.iter().any(|c| {
+                let p = *c + inset;
+                let mut covered = false;
+                grid.query_aabb(&Aabb::new(p - Vec3::splat(0.01), p + Vec3::splat(0.01)), |bi| {
+                    if covered { return; }
+                    let b = &map.collision.brushes[bi as usize];
+                    if !b.is_solid() || !b.flags.contains(BrushFlags::OPAQUE) { return; }
+                    if b.flags.contains(BrushFlags::CUTOUT) { return; }
+                    if matches!(b.kind, BrushKind::Ramp(_)) { return; }
+                    let a = b.aabb;
+                    if p.x > a.min.x + 0.005 && p.x < a.max.x - 0.005
+                        && p.y > a.min.y + 0.005 && p.y < a.max.y - 0.005
+                        && p.z > a.min.z + 0.005 && p.z < a.max.z - 0.005
+                        && b.covers_xz(p.x, p.z)
+                    { covered = true; }
+                });
+                !covered
+            })
+        });
+        let _ = solids;
     }
 
     // ------------------------------------------------------------ lighting
@@ -267,6 +348,71 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
 
     let triangle_count = indices.len() / 3;
     MapMesh { vertices, indices, clusters, bounds, triangle_count }
+}
+
+/// Clips a box's XZ footprint by a set of vertical planes.
+///
+/// Sutherland-Hodgman against `nx*x + nz*z <= d`. The result is convex because
+/// the input is, which is what lets the rest of the pipeline treat it as one
+/// polygon rather than a general mesh.
+fn clip_footprint(aabb: &Aabb, planes: &[[f32; 3]]) -> Vec<Vec2> {
+    let mut poly = vec![
+        Vec2::new(aabb.min.x, aabb.min.z),
+        Vec2::new(aabb.max.x, aabb.min.z),
+        Vec2::new(aabb.max.x, aabb.max.z),
+        Vec2::new(aabb.min.x, aabb.max.z),
+    ];
+    for p in planes {
+        if poly.len() < 3 { break; }
+        let dist = |v: Vec2| p[0] * v.x + p[1] * v.y - p[2];
+        let mut out: Vec<Vec2> = Vec::with_capacity(poly.len() + 2);
+        for i in 0..poly.len() {
+            let a = poly[i];
+            let b = poly[(i + 1) % poly.len()];
+            let (da, db) = (dist(a), dist(b));
+            if da <= 0.0 { out.push(a); }
+            if (da > 0.0) != (db > 0.0) {
+                let t = da / (da - db);
+                out.push(a + (b - a) * t);
+            }
+        }
+        poly = out;
+    }
+    // Drop points the clipper duplicated at a corner.
+    poly.dedup_by(|a, b| (*a - *b).length_squared() < 1e-8);
+    if poly.len() > 1 && (poly[0] - poly[poly.len() - 1]).length_squared() < 1e-8 { poly.pop(); }
+    poly
+}
+
+/// Emits a convex polygon as a triangle fan of quads, so it can travel through
+/// the same four-corner `Face` the rest of the builder uses.
+#[allow(clippy::too_many_arguments)]
+fn push_fan(faces: &mut Vec<Face>, poly: &[Vec3], normal: Vec3, b: &crate::maps::brush::Brush,
+            mat: Mat, _flip: bool, cutout: bool, no_shadow: bool) {
+    for i in 1..poly.len().saturating_sub(1) {
+        let corners = [poly[0], poly[i], poly[i + 1], poly[i + 1]];
+        let uvs = plane_uvs(&corners, 1, b.tex_scale);
+        faces.push(Face { corners, normal, uvs, mat, light_scale: b.light_scale, cutout, no_shadow });
+    }
+}
+
+/// World-space UVs for a vertical face of arbitrary orientation: `u` runs
+/// along the wall, `v` down it, so an angled wall's texture is continuous with
+/// the square ones either side of it.
+fn side_uvs(corners: &[Vec3; 4], scale: f32) -> [[f32; 2]; 4] {
+    let s = if scale <= 0.001 { 1.0 } else { scale };
+    let along = Vec3::new(corners[1].x - corners[0].x, 0.0, corners[1].z - corners[0].z);
+    let dir = along.normalize_or_zero();
+    let base = corners[0];
+    let mut out = [[0.0f32; 2]; 4];
+    for (i, c) in corners.iter().enumerate() {
+        let d = Vec3::new(c.x - base.x, 0.0, c.z - base.z).dot(dir);
+        // Offset by the world position of the wall's start so neighbouring
+        // brushes on the same line agree about where the texture begins.
+        let u = d + base.x * dir.x + base.z * dir.z;
+        out[i] = [u / s, -c.y / s];
+    }
+    out
 }
 
 /// Computes the baked colour for one vertex.

@@ -6,7 +6,7 @@
 //! a few tens of kilobytes that fit comfortably in cache.
 
 use crate::assets::materials::Mat;
-use crate::math::{sweep_aabb, Aabb, TraceHit};
+use crate::math::{ray_clipped, sweep_aabb, sweep_clipped, Aabb, TraceHit};
 use glam::Vec3;
 
 bitflags_lite! {
@@ -73,6 +73,61 @@ pub enum BrushKind {
     /// The top surface slopes from the box's min height to its max height
     /// along the given axis. Sides and underside behave like a box.
     Ramp(RampAxis),
+    /// The box with up to four vertical planes cut off it.
+    ///
+    /// This is what stops the game being made of squares. The intersection of
+    /// a box and a set of half-spaces is still convex, so a swept box against
+    /// one is still exact: each plane contributes one more entry time to the
+    /// same slab test the box already does. One plane is a corner cut or an
+    /// angled wall; four are an octagonal column.
+    Clipped(Clips),
+}
+
+/// Vertical clip planes, at most four to a brush.
+///
+/// Four is not arbitrary: the box already supplies four axis-aligned sides, so
+/// four diagonals make an octagon, which is as round as anything in a game
+/// that draws flat-shaded polygons needs to be.
+pub const MAX_CLIP: usize = 4;
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Clips {
+    /// `(nx, nz, d)` with the solid on the `nx*x + nz*z <= d` side, so the
+    /// stored normal is the outward surface normal and can be used directly as
+    /// a contact normal.
+    pub planes: [[f32; 3]; MAX_CLIP],
+    pub count: u8,
+}
+
+impl Clips {
+    pub fn new() -> Clips { Clips::default() }
+
+    /// Adds a plane cutting everything on the far side of the line through
+    /// `(ax, az)` and `(bx, bz)`, keeping the side `inside` is on.
+    pub fn cut(mut self, ax: f32, az: f32, bx: f32, bz: f32, inside: glam::Vec2) -> Clips {
+        if self.count as usize >= MAX_CLIP { return self; }
+        let (dx, dz) = (bx - ax, bz - az);
+        let len = (dx * dx + dz * dz).sqrt();
+        if len < 1e-5 { return self; }
+        // Outward normal: perpendicular to the edge, pointing away from the
+        // interior point.
+        let (mut nx, mut nz) = (dz / len, -dx / len);
+        let d0 = nx * ax + nz * az;
+        if nx * inside.x + nz * inside.y > d0 { nx = -nx; nz = -nz; }
+        let d = nx * ax + nz * az;
+        self.planes[self.count as usize] = [nx, nz, d];
+        self.count += 1;
+        self
+    }
+
+    #[inline]
+    pub fn slice(&self) -> &[[f32; 3]] { &self.planes[..self.count as usize] }
+
+    /// True if the column at `(x, z)` is inside every plane.
+    #[inline]
+    pub fn contains_xz(&self, x: f32, z: f32) -> bool {
+        self.slice().iter().all(|p| p[0] * x + p[1] * z <= p[2] + 1e-4)
+    }
 }
 
 #[derive(Clone)]
@@ -117,7 +172,7 @@ impl Brush {
     #[inline]
     pub fn surface_height(&self, x: f32, z: f32) -> f32 {
         match self.kind {
-            BrushKind::Box => self.aabb.max.y,
+            BrushKind::Box | BrushKind::Clipped(_) => self.aabb.max.y,
             BrushKind::Ramp(axis) => {
                 let (lo, hi, v) = match axis {
                     RampAxis::PosX => (self.aabb.min.x, self.aabb.max.x, x),
@@ -131,13 +186,33 @@ impl Brush {
         }
     }
 
+    /// The vertical clip planes on this brush; empty for anything else.
+    #[inline]
+    pub fn clips(&self) -> &[[f32; 3]] {
+        match &self.kind {
+            BrushKind::Clipped(c) => c.slice(),
+            _ => &[],
+        }
+    }
+
+    /// True if the column at `(x, z)` is within this brush's footprint.
+    #[inline]
+    pub fn covers_xz(&self, x: f32, z: f32) -> bool {
+        if x < self.aabb.min.x || x > self.aabb.max.x { return false; }
+        if z < self.aabb.min.z || z > self.aabb.max.z { return false; }
+        match &self.kind {
+            BrushKind::Clipped(c) => c.contains_xz(x, z),
+            _ => true,
+        }
+    }
+
     /// Collision box used for the sweep pass. Ramps are swept against only
     /// their lower portion so a mover walks onto them instead of into them;
     /// the ramp surface itself is resolved separately as a height field.
     #[inline]
     pub fn sweep_box(&self) -> Aabb {
         match self.kind {
-            BrushKind::Box => self.aabb,
+            BrushKind::Box | BrushKind::Clipped(_) => self.aabb,
             BrushKind::Ramp(_) => Aabb::new(self.aabb.min, Vec3::new(self.aabb.max.x, self.aabb.min.y, self.aabb.max.z)),
         }
     }
@@ -335,11 +410,18 @@ impl CollisionWorld {
             if !self.passes(b, mask) { return true; }
             // Ramps use their bounding box for shots; the small error is
             // invisible at these polygon sizes and keeps the trace branchless.
-            if let Some((t, axis)) = b.aabb.ray_hit(origin, inv, best_t) {
-                if t < best_t {
-                    best_t = t;
+            let hit = if b.clips().is_empty() {
+                b.aabb.ray_hit(origin, inv, best_t).map(|(t, axis)| {
                     let mut n = Vec3::ZERO;
                     n[axis] = if dir[axis] > 0.0 { -1.0 } else { 1.0 };
+                    (t, n)
+                })
+            } else {
+                ray_clipped(origin, dir, &b.aabb, b.clips(), best_t)
+            };
+            if let Some((t, n)) = hit {
+                if t < best_t {
+                    best_t = t;
                     best = TraceHit {
                         fraction: t / max_t.max(1e-6),
                         normal: n,
@@ -373,7 +455,12 @@ impl CollisionWorld {
         self.grid.query_aabb(&swept, |bi| {
             let b = &self.brushes[bi as usize];
             if !self.passes(b, mask) { return; }
-            if let Some((t, n)) = sweep_aabb(box_at_origin, delta, &b.sweep_box()) {
+            let swept = if b.clips().is_empty() {
+                sweep_aabb(box_at_origin, delta, &b.sweep_box())
+            } else {
+                sweep_clipped(box_at_origin, delta, &b.sweep_box(), b.clips())
+            };
+            if let Some((t, n)) = swept {
                 if t < best_t {
                     best_t = t;
                     best_n = n;
@@ -401,7 +488,18 @@ impl CollisionWorld {
         self.grid.query_aabb(b, |bi| {
             if hit { return; }
             let br = &self.brushes[bi as usize];
-            if self.passes(br, mask) && br.sweep_box().overlaps(b) { hit = true; }
+            if !self.passes(br, mask) || !br.sweep_box().overlaps(b) { return; }
+            if !br.clips().is_empty() {
+                let c = b.center();
+                let r = b.half();
+                let corners = [
+                    (c.x - r.x, c.z - r.z), (c.x + r.x, c.z - r.z),
+                    (c.x + r.x, c.z + r.z), (c.x - r.x, c.z + r.z),
+                    (c.x, c.z),
+                ];
+                if !corners.iter().any(|(x, z)| br.covers_xz(*x, *z)) { return; }
+            }
+            hit = true;
         });
         hit
     }
@@ -424,7 +522,19 @@ impl CollisionWorld {
             // resolved by `ramp_surface`/`ground_below` instead.
             if matches!(b.kind, BrushKind::Ramp(_)) { return; }
             if b.aabb.max.y <= feet.y + step { return; }
-            if b.aabb.overlaps(&body) { ok = false; }
+            if !b.aabb.overlaps(&body) { return; }
+            // A clipped brush only blocks where its footprint actually is.
+            if !b.clips().is_empty() {
+                let c = body.center();
+                let r = body.half();
+                let corners = [
+                    (c.x - r.x, c.z - r.z), (c.x + r.x, c.z - r.z),
+                    (c.x + r.x, c.z + r.z), (c.x - r.x, c.z + r.z),
+                    (c.x, c.z),
+                ];
+                if !corners.iter().any(|(x, z)| b.covers_xz(*x, *z)) { return; }
+            }
+            ok = false;
         });
         ok
     }
@@ -468,6 +578,11 @@ impl CollisionWorld {
             if !b.is_solid() { return; }
             if feet.x < b.aabb.min.x - radius || feet.x > b.aabb.max.x + radius { return; }
             if feet.z < b.aabb.min.z - radius || feet.z > b.aabb.max.z + radius { return; }
+            if !b.clips().is_empty()
+                && !b.covers_xz(feet.x.clamp(b.aabb.min.x, b.aabb.max.x),
+                                feet.z.clamp(b.aabb.min.z, b.aabb.max.z))
+                && !b.covers_xz(feet.x, feet.z)
+            { return; }
             let h = b.surface_height(
                 feet.x.clamp(b.aabb.min.x, b.aabb.max.x),
                 feet.z.clamp(b.aabb.min.z, b.aabb.max.z),

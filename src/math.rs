@@ -142,6 +142,142 @@ pub const CONTACT_EPS: f32 = 1.0e-3;
 /// sweep a ray" reduction, which is both exact for AABB-vs-AABB and about as
 /// cheap as collision gets.
 #[inline]
+/// Swept box against a box clipped by vertical planes.
+///
+/// The Minkowski expansion of a half-space by a box is the same half-space
+/// pushed out by the box's support along the normal, so a clip plane costs one
+/// more entry/exit pair in exactly the slab test the box already runs. That is
+/// what keeps angled walls and round columns as cheap and as exact as squares.
+pub fn sweep_clipped(
+    mover: &Aabb,
+    delta: Vec3,
+    solid: &Aabb,
+    planes: &[[f32; 3]],
+) -> Option<(f32, Vec3)> {
+    if planes.is_empty() { return sweep_aabb(mover, delta, solid); }
+
+    let expanded = Aabb { min: solid.min - mover.half(), max: solid.max + mover.half() };
+    let origin = mover.center();
+    let half = mover.half();
+
+    // Plane offsets, expanded by the mover's support along each normal.
+    let mut offs = [0.0f32; 8];
+    for (i, p) in planes.iter().enumerate() {
+        offs[i] = p[2] + p[0].abs() * half.x + p[1].abs() * half.z;
+    }
+
+    // Already inside the expanded shape: leave it to the depenetration pass,
+    // exactly as the box case does.
+    let inside_box = expanded.expanded_uniform(-CONTACT_EPS).contains_point(origin);
+    if inside_box {
+        let inside_planes = planes.iter().enumerate().all(|(i, p)| {
+            p[0] * origin.x + p[1] * origin.z <= offs[i] - CONTACT_EPS
+        });
+        if inside_planes { return None; }
+    }
+
+    let mut t_enter = 0.0f32;
+    let mut t_exit = 1.0f32;
+    let mut normal = Vec3::ZERO;
+
+    for axis in 0..3 {
+        let d = delta[axis];
+        let lo = expanded.min[axis];
+        let hi = expanded.max[axis];
+        let o = origin[axis];
+        if d.abs() < 1e-8 {
+            if o < lo || o > hi { return None; }
+            continue;
+        }
+        let inv = 1.0 / d;
+        let (mut t0, mut t1) = ((lo - o) * inv, (hi - o) * inv);
+        let mut n = -1.0f32;
+        if t0 > t1 { std::mem::swap(&mut t0, &mut t1); n = 1.0; }
+        if t0 > t_enter {
+            t_enter = t0;
+            normal = Vec3::ZERO;
+            normal[axis] = n;
+        }
+        if t1 < t_exit { t_exit = t1; }
+        if t_enter > t_exit { return None; }
+    }
+
+    for (i, p) in planes.iter().enumerate() {
+        let n = Vec3::new(p[0], 0.0, p[1]);
+        let denom = n.dot(delta);
+        let dist = n.dot(origin) - offs[i];
+        if denom.abs() < 1e-8 {
+            // Travelling parallel to the plane: only ever inside if we already are.
+            if dist > 0.0 { return None; }
+            continue;
+        }
+        let t = -dist / denom;
+        if denom > 0.0 {
+            // Moving outward: this is where we leave the half-space.
+            if t < t_exit { t_exit = t; }
+        } else {
+            // Moving inward: this is where we enter it.
+            if t > t_enter {
+                t_enter = t;
+                normal = n;
+            }
+        }
+        if t_enter > t_exit { return None; }
+    }
+
+    if t_enter > 1.0 || normal == Vec3::ZERO { return None; }
+    Some((t_enter.max(0.0), normal))
+}
+
+/// Ray against a box clipped by vertical planes. Returns `(t, normal)`.
+pub fn ray_clipped(
+    origin: Vec3,
+    dir: Vec3,
+    solid: &Aabb,
+    planes: &[[f32; 3]],
+    max_t: f32,
+) -> Option<(f32, Vec3)> {
+    let mut t_enter = 0.0f32;
+    let mut t_exit = max_t;
+    let mut normal = Vec3::ZERO;
+
+    for axis in 0..3 {
+        let d = dir[axis];
+        let (lo, hi) = (solid.min[axis], solid.max[axis]);
+        let o = origin[axis];
+        if d.abs() < 1e-8 {
+            if o < lo || o > hi { return None; }
+            continue;
+        }
+        let inv = 1.0 / d;
+        let (mut t0, mut t1) = ((lo - o) * inv, (hi - o) * inv);
+        let mut n = -1.0f32;
+        if t0 > t1 { std::mem::swap(&mut t0, &mut t1); n = 1.0; }
+        if t0 > t_enter { t_enter = t0; normal = Vec3::ZERO; normal[axis] = n; }
+        if t1 < t_exit { t_exit = t1; }
+        if t_enter > t_exit { return None; }
+    }
+    for p in planes {
+        let n = Vec3::new(p[0], 0.0, p[1]);
+        let denom = n.dot(dir);
+        let dist = n.dot(origin) - p[2];
+        if denom.abs() < 1e-8 {
+            if dist > 0.0 { return None; }
+            continue;
+        }
+        let t = -dist / denom;
+        if denom > 0.0 {
+            if t < t_exit { t_exit = t; }
+        } else if t > t_enter {
+            t_enter = t;
+            normal = n;
+        }
+        if t_enter > t_exit { return None; }
+    }
+    if t_enter > max_t || normal == Vec3::ZERO { return None; }
+    Some((t_enter.max(0.0), normal))
+}
+
 pub fn sweep_aabb(mover: &Aabb, delta: Vec3, solid: &Aabb) -> Option<(f32, Vec3)> {
     let expanded = Aabb {
         min: solid.min - mover.half(),
