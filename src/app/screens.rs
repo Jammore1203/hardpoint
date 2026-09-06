@@ -666,20 +666,6 @@ fn loadout_screen(
     }
     y += step;
     ui.p.text(x + 18.0, y - 2.0, theme::SMALL, theme::TEXT_DIM, loadout.perk.blurb());
-    y += 34.0;
-
-    // Appearance. Below the perk because it is the one row here that has no
-    // effect on how the player performs, and the ordering should say so.
-    let kit = loadout.kit();
-    let d = ui.option(x, y, w, "KIT", kit.name, true);
-    if d != 0 {
-        let n = crate::game::loadout::KIT_COUNT as i32;
-        loadout.cosmetic = ((loadout.cosmetic as i32 + d).rem_euclid(n)) as u8;
-        out.push(Intent::SendLoadout);
-    }
-    y += step;
-    ui.p.text(x + 18.0, y - 2.0, theme::SMALL, theme::TEXT_DIM,
-              "Appearance only. Never changes your silhouette.");
     y += 40.0;
 
     if ui.button(x, y, w, "DONE", "", true) { out.push(Intent::Back); }

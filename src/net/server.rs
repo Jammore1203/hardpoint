@@ -1096,7 +1096,6 @@ impl Server {
                 weapon: p.weapon().id as u8,
                 ammo: p.weapon().ammo.min(255) as u8,
                 team: p.team as u8,
-                kit: p.loadout.cosmetic,
                 present: true,
             };
         }

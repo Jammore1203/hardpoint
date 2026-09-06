@@ -191,8 +191,8 @@ pub enum ServerMsg {
 /// Reliable, ordered messages from client to server.
 #[derive(Clone, Debug)]
 pub enum ClientMsg {
-    Hello { name: String, level: u8, loadout: [u8; 8] },
-    SetLoadout { loadout: [u8; 8] },
+    Hello { name: String, level: u8, loadout: [u8; 7] },
+    SetLoadout { loadout: [u8; 7] },
     Chat { team_only: bool, text: String },
     ChangeTeam { team: Team },
     Ready { ready: bool },
@@ -340,13 +340,13 @@ impl ClientMsg {
             1 => {
                 let name = r.lossy_string(MAX_NAME_LEN)?;
                 let level = r.u8()?;
-                let mut loadout = [0u8; 8];
-                loadout.copy_from_slice(r.bytes(8)?);
+                let mut loadout = [0u8; 7];
+                loadout.copy_from_slice(r.bytes(7)?);
                 ClientMsg::Hello { name, level, loadout }
             }
             2 => {
-                let mut loadout = [0u8; 8];
-                loadout.copy_from_slice(r.bytes(8)?);
+                let mut loadout = [0u8; 7];
+                loadout.copy_from_slice(r.bytes(7)?);
                 ClientMsg::SetLoadout { loadout }
             }
             3 => ClientMsg::Chat { team_only: r.bool()?, text: r.lossy_string(MAX_CHAT_LEN)? },
@@ -396,8 +396,6 @@ pub struct PlayerSnap {
     pub weapon: u8,
     pub ammo: u8,
     pub team: u8,
-    /// Cosmetic kit index, so everyone sees the same soldier.
-    pub kit: u8,
     pub present: bool,
 }
 
@@ -427,7 +425,7 @@ impl PlayerSnap {
         if !base.present || self.weapon != base.weapon || self.ammo != base.ammo {
             mask.insert(SnapField::WEAPON);
         }
-        if !base.present || self.team != base.team || self.kit != base.kit { mask.insert(SnapField::TEAM); }
+        if !base.present || self.team != base.team { mask.insert(SnapField::TEAM); }
 
         w.u8(slot);
         w.u16(mask.bits());
@@ -449,7 +447,7 @@ impl PlayerSnap {
         if mask.contains(SnapField::FLAGS) { w.u16(self.flags.bits()); }
         if mask.contains(SnapField::HEALTH) { w.u8(self.health); w.u8(self.armor); }
         if mask.contains(SnapField::WEAPON) { w.u8(self.weapon); w.u8(self.ammo); }
-        if mask.contains(SnapField::TEAM) { w.u8(self.team); w.u8(self.kit); }
+        if mask.contains(SnapField::TEAM) { w.u8(self.team); }
     }
 
     /// Reads which slot the next delta is for, and which fields it carries.
@@ -488,7 +486,7 @@ impl PlayerSnap {
         if mask.contains(SnapField::FLAGS) { s.flags = PFlags::from_bits_truncate(r.u16()?); }
         if mask.contains(SnapField::HEALTH) { s.health = r.u8()?; s.armor = r.u8()?; }
         if mask.contains(SnapField::WEAPON) { s.weapon = r.u8()?; s.ammo = r.u8()?; }
-        if mask.contains(SnapField::TEAM) { s.team = r.u8()?; s.kit = r.u8()?; }
+        if mask.contains(SnapField::TEAM) { s.team = r.u8()?; }
         Some(s)
     }
 }
@@ -868,5 +866,5 @@ pub fn password_hash(password: &str, salt: u64) -> u64 {
 }
 
 /// Loadout helpers shared by both sides.
-pub fn loadout_to_bytes(l: &Loadout) -> [u8; 8] { l.encode() }
-pub fn loadout_from_bytes(b: [u8; 8]) -> Loadout { Loadout::decode(b) }
+pub fn loadout_to_bytes(l: &Loadout) -> [u8; 7] { l.encode() }
+pub fn loadout_from_bytes(b: [u8; 7]) -> Loadout { Loadout::decode(b) }
