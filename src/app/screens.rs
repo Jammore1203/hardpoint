@@ -1262,6 +1262,7 @@ fn draw_hud(app: &mut App, now: f64) {
         scale: app.settings.hud_scale,
         objectives: &objectives,
         alive,
+        ads: client.local.mv.ads_t,
         respawn_in: respawn,
         health: client.local.health,
         armor: client.local.armor,

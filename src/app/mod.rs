@@ -624,6 +624,10 @@ impl App {
                 self.input.set_key(KeyCode::KeyW, (t % 7.0) < 5.0);
                 self.input.set_key(KeyCode::KeyD, (t % 13.0) < 3.5);
                 self.input.set_key(KeyCode::Space, (t % 9.0) < 0.1);
+                // A capture aid: hold the sights up and the trigger down so a
+                // screenshot shows the sight picture rather than whatever the
+                // script happened to be doing.
+                let sights_only = std::env::var_os("HARDPOINT_SIGHTS").is_some();
                 let engaged = self.nearest_enemy_angles().is_some();
                 // Fire when there is something to shoot, so the harness
                 // produces real hits, kills and progression.
@@ -631,7 +635,11 @@ impl App {
                                      if engaged { (t % 0.9) < 0.55 } else { (t % 2.6) < 0.30 });
                 // Aim down sights when engaged, as a player would: hip fire is
                 // a close-range tool and testing with it measures nothing.
-                self.input.set_mouse(winit::event::MouseButton::Right, engaged);
+                self.input.set_mouse(winit::event::MouseButton::Right, engaged || sights_only);
+                if sights_only {
+                    self.input.set_mouse(winit::event::MouseButton::Left, false);
+                    self.pitch = 0.0;
+                }
                 if engaged {
                     self.input.set_key(winit::keyboard::KeyCode::KeyW, false);
                     self.input.set_key(winit::keyboard::KeyCode::KeyD, false);
@@ -643,8 +651,15 @@ impl App {
                 if let Some((yaw, pitch)) = self.nearest_enemy_angles() {
                     let step = (now - prev_now).clamp(0.0, 0.05) as f32;
                     let k = (step * 9.0).min(1.0);
-                    self.yaw += crate::core::angle_delta(self.yaw, yaw) * k;
-                    self.pitch += (pitch - self.pitch) * k;
+                    // Pull against the recoil, the way a player does. The
+                    // camera adds the kick on top of the aim, so a harness
+                    // that only tracks the target walks its view into the sky
+                    // over a long burst and every capture is of the horizon.
+                    let (rp, ry) = self.client.as_ref()
+                        .map(|c| (c.local.recoil.pitch_kick, c.local.recoil.yaw_kick))
+                        .unwrap_or((0.0, 0.0));
+                    self.yaw += crate::core::angle_delta(self.yaw, yaw - ry) * k;
+                    self.pitch += ((pitch - rp) - self.pitch) * k;
                 } else {
                     // Scaled by frame time: the capture window runs uncapped,
                     // so a per-frame constant would spin the view into the floor.

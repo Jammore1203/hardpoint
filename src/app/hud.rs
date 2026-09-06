@@ -166,6 +166,8 @@ pub struct HudFrame<'a> {
     /// Objective positions and labels the map wants shown.
     pub objectives: &'a [(Vec3, &'a str, Team, bool)],
     pub alive: bool,
+    /// How far into aiming down the sights the player is, 0..1.
+    pub ads: f32,
     pub respawn_in: f32,
     pub health: f32,
     pub armor: f32,
@@ -188,7 +190,10 @@ pub fn draw(p: &mut Painter, f: &HudFrame) {
 
     draw_top_bar(p, f, w);
     if f.alive {
-        draw_crosshair(p, f, w, h);
+        // Aiming replaces the crosshair with the weapon's own sights. A
+        // crosshair painted over an aligned rear aperture is the clearest
+        // possible statement that the sights are decoration.
+        if f.ads < 0.55 { draw_crosshair(p, f, w, h); }
         draw_hit_markers(p, f, w, h);
     }
     draw_bottom_left(p, f, h, s);

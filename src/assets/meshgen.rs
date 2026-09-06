@@ -1058,6 +1058,13 @@ pub struct WeaponModel {
     pub grip: Vec3,
     pub fore: Vec3,
     pub muzzle: Vec3,
+    /// The rear sight aperture, in weapon-local metres.
+    ///
+    /// Aiming places this point exactly on the centre of the screen, so the
+    /// sight picture follows from where the sight is on the model rather than
+    /// from a hand-tuned offset that has to be re-tuned every time a part
+    /// moves. Line the rear up with the front post and the shot goes there.
+    pub sight: Vec3,
 }
 
 use crate::game::weapons::ModelShape;
@@ -1231,60 +1238,70 @@ const M_RIFLE: WeaponModel = WeaponModel {
     grip: Vec3::new(0.0, -0.105, 0.085),
     fore: Vec3::new(0.0, -0.035, -0.31),
     muzzle: Vec3::new(0.0, 0.006, -0.645),
+    sight: Vec3::new(0.0, 0.076, 0.02),
 };
 const M_BULLPUP: WeaponModel = WeaponModel {
     parts: &BULLPUP,
     grip: Vec3::new(0.0, -0.095, -0.055),
     fore: Vec3::new(0.0, -0.030, -0.26),
     muzzle: Vec3::new(0.0, 0.010, -0.545),
+    sight: Vec3::new(0.0, 0.086, 0.028),
 };
 const M_SMG: WeaponModel = WeaponModel {
     parts: &SMG,
     grip: Vec3::new(0.0, -0.092, 0.062),
     fore: Vec3::new(0.0, -0.055, -0.185),
     muzzle: Vec3::new(0.0, 0.012, -0.365),
+    sight: Vec3::new(0.0, 0.070, -0.005),
 };
 const M_SHOTGUN: WeaponModel = WeaponModel {
     parts: &SHOTGUN,
     grip: Vec3::new(0.0, -0.082, 0.085),
     fore: Vec3::new(0.0, -0.036, -0.235),
     muzzle: Vec3::new(0.0, 0.022, -0.555),
+    sight: Vec3::new(0.0, 0.048, -0.05),
 };
 const M_SNIPER: WeaponModel = WeaponModel {
     parts: &SNIPER,
     grip: Vec3::new(0.0, -0.100, 0.095),
     fore: Vec3::new(0.0, -0.040, -0.28),
     muzzle: Vec3::new(0.0, 0.006, -0.675),
+    sight: Vec3::new(0.0, 0.098, 0.058),
 };
 const M_LMG: WeaponModel = WeaponModel {
     parts: &LMG,
     grip: Vec3::new(0.0, -0.106, 0.105),
     fore: Vec3::new(0.0, -0.040, -0.34),
     muzzle: Vec3::new(0.0, 0.010, -0.640),
+    sight: Vec3::new(0.0, 0.078, 0.02),
 };
 const M_PISTOL_SMALL: WeaponModel = WeaponModel {
     parts: &PISTOL_SMALL,
     grip: Vec3::new(0.0, -0.080, 0.030),
     fore: Vec3::new(0.0, -0.045, -0.060),
     muzzle: Vec3::new(0.0, 0.020, -0.190),
+    sight: Vec3::new(0.0, 0.046, 0.005),
 };
 const M_PISTOL_HEAVY: WeaponModel = WeaponModel {
     parts: &PISTOL_HEAVY,
     grip: Vec3::new(0.0, -0.072, 0.070),
     fore: Vec3::new(0.0, -0.040, -0.020),
     muzzle: Vec3::new(0.0, 0.024, -0.240),
+    sight: Vec3::new(0.0, 0.056, 0.052),
 };
 const M_KNIFE: WeaponModel = WeaponModel {
     parts: &KNIFE,
     grip: Vec3::new(0.0, 0.000, 0.010),
     fore: Vec3::new(0.0, 0.000, 0.010),
     muzzle: Vec3::new(0.0, 0.010, -0.250),
+    sight: Vec3::new(0.0, 0.0, 0.0),
 };
 const M_SPADE: WeaponModel = WeaponModel {
     parts: &SPADE,
     grip: Vec3::new(0.0, 0.000, 0.060),
     fore: Vec3::new(0.0, 0.000, -0.080),
     muzzle: Vec3::new(0.0, 0.000, -0.300),
+    sight: Vec3::new(0.0, 0.0, 0.0),
 };
 
 pub fn weapon_model(shape: ModelShape) -> &'static WeaponModel {

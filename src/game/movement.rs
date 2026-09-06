@@ -579,12 +579,47 @@ pub struct RecoilState {
     /// The portion of the kick that will not spring back.
     pub pitch_perm: f32,
     pub yaw_perm: f32,
+    /// How many shots into the current burst we are. This is what makes
+    /// recoil a pattern rather than a random walk.
+    pub shot: u16,
+    /// Seconds since the last shot, for deciding when a burst has ended.
+    pub since_shot: f32,
 }
 
 impl Default for RecoilState {
     fn default() -> Self {
-        RecoilState { pitch_kick: 0.0, yaw_kick: 0.0, pitch_perm: 0.0, yaw_perm: 0.0 }
+        RecoilState {
+            pitch_kick: 0.0, yaw_kick: 0.0, pitch_perm: 0.0, yaw_perm: 0.0,
+            shot: 0, since_shot: 99.0,
+        }
     }
+}
+
+/// The recoil pattern for one weapon, as a function of shot number.
+///
+/// Deterministic, because a pattern you cannot learn is just a penalty. The
+/// shape is the one every automatic weapon in this genre has: the first few
+/// shots climb almost vertically while the gun is still controllable, then the
+/// climb flattens and the muzzle walks sideways, reversing once so the tail of
+/// a long burst is the part you have to fight. Each weapon gets its own
+/// horizontal phase and bias from its identity, so two rifles with the same
+/// statistics still spray differently and are worth learning separately.
+pub fn recoil_pattern(def: &crate::game::weapons::WeaponDef, shot: u16) -> (f32, f32) {
+    let n = shot as f32;
+    // Vertical: strong at first, easing to a plateau.
+    let climb = 1.0 - (-(n + 1.0) * 0.42).exp();
+    let vertical = def.recoil_up * (1.35 - 0.55 * climb);
+
+    // Horizontal: two sine terms at incommensurate rates, seeded per weapon,
+    // which reads as a deliberate hand-drawn pattern rather than a wobble.
+    let seed = def.id as u32;
+    let phase = (seed % 7) as f32 * 0.9;
+    let bias = if seed % 2 == 0 { 1.0 } else { -1.0 };
+    let walk = ((n * 0.55 + phase).sin() * 0.7 + (n * 0.23 + phase * 0.5).sin() * 0.5) * bias;
+    // The first two shots barely move sideways: tapping is precise, holding
+    // the trigger is not.
+    let horizontal = def.recoil_side * walk * (n / (n + 2.5)) * 2.2;
+    (vertical, horizontal)
 }
 
 impl RecoilState {
@@ -592,15 +627,28 @@ impl RecoilState {
         // Aiming cuts recoil noticeably; that is most of why aiming is worth
         // the movement penalty.
         let scale = 1.0 - 0.35 * ads_t;
-        let up = def.recoil_up * scale;
-        let side = def.recoil_side * rng.gaussian() * scale;
+        let (up, side) = recoil_pattern(def, self.shot);
+        // A little noise on top, so the pattern is learnable but not a rail.
+        // Enough to matter at range, not enough to hide the shape.
+        let jitter = 0.10 + 0.10 * (1.0 - ads_t);
+        let up = up * scale * (1.0 + rng.gaussian() * jitter * 0.5);
+        let side = (side + def.recoil_side * rng.gaussian() * jitter) * scale;
+
         self.pitch_kick += up;
         self.yaw_kick += side;
         self.pitch_perm += up * def.recoil_keep;
         self.yaw_perm += side * def.recoil_keep * 0.5;
+        self.shot = self.shot.saturating_add(1);
+        self.since_shot = 0.0;
     }
 
     pub fn update(&mut self, def: &crate::game::weapons::WeaponDef, dt: f32) {
+        // A burst ends when the trigger has been off long enough for the hands
+        // to reset; the pattern then starts again from the top. Without this
+        // the pattern would be a property of the magazine rather than of how
+        // you are shooting.
+        self.since_shot += dt;
+        if self.since_shot > 0.32 { self.shot = 0; }
         let k = (-def.recoil_recover * dt).exp();
         self.pitch_kick = self.pitch_perm + (self.pitch_kick - self.pitch_perm) * k;
         self.yaw_kick = self.yaw_perm + (self.yaw_kick - self.yaw_perm) * k;
@@ -616,6 +664,8 @@ impl RecoilState {
         self.yaw_kick = 0.0;
         self.pitch_perm = 0.0;
         self.yaw_perm = 0.0;
+        self.shot = 0;
+        self.since_shot = 99.0;
     }
 }
 

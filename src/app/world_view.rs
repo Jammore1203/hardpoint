@@ -188,13 +188,8 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
 
         let def = WeaponId::from_u8(p.snap.weapon).def();
         let model = meshgen::weapon_model(def.shape);
-        // Viewmodels are foreshortened. The world models are at real
-        // proportions - a rifle is most of a metre - and the shooter's eye is
-        // at the butt of it, so drawn full length the stock fills the middle
-        // of the screen and the sights are the only part you can see past.
-        // Every game of this kind compresses the weapon along its own axis for
-        // the first-person view; the third-person model keeps its real length.
-        let model_scale = meshgen::weapon_model_scale(def) * Vec3::new(1.0, 1.0, 0.74);
+        // Full length here: this is the weapon as it exists in the world.
+        let model_scale = meshgen::weapon_model_scale(def);
         let scaled = |v: Vec3| v * model_scale;
 
         let pose = meshgen::pose_character(
@@ -395,7 +390,18 @@ impl ViewModel {
         // metre - so the carry positions sit further out than they did when a
         // rifle was seven boxes and sixty centimetres long.
         let hip = Vec3::new(0.150, -0.205, -0.80);
-        let aim = Vec3::new(0.0, -0.077, -0.66);
+        // Aiming is derived, not authored: put the weapon where its own rear
+        // sight lands on the centre of the screen. Every weapon then has a
+        // correct sight picture for free, and moving a sight on a model moves
+        // the sight picture with it.
+        let sight_dist = 0.62f32;
+        // Viewmodels are foreshortened along the weapon's own axis: the world
+        // models are at real proportions and the shooter's eye is at the butt
+        // of one, so drawn full length the stock fills the middle of the
+        // screen. The third-person model keeps its real length.
+        let vm_scale = meshgen::weapon_model_scale(def) * Vec3::new(1.0, 1.0, 0.74);
+        let sight = meshgen::weapon_model(def.shape).sight * vm_scale;
+        let aim = Vec3::new(-sight.x, -sight.y, -sight_dist - sight.z);
         let mut pos = hip.lerp(aim, self.ads);
 
         // Walk bob, damped hard while aiming.
@@ -455,7 +461,7 @@ impl ViewModel {
         // of the screen and the sights are the only part you can see past.
         // Every game of this kind compresses the weapon along its own axis for
         // the first-person view; the third-person model keeps its real length.
-        let model_scale = meshgen::weapon_model_scale(def) * Vec3::new(1.0, 1.0, 0.74);
+        let model_scale = vm_scale;
 
         for part in model.parts {
             let m = meshgen::weapon_part_matrix(hands, model_scale, part);
