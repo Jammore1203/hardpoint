@@ -303,7 +303,7 @@ impl Settings {
             scanlines: self.scanlines,
             vignette: self.vignette,
             exposure: 1.0,
-            saturation: if self.film_grade { 1.0 } else { 1.0 },
+            saturation: 1.0,
             view_distance: self.view_distance,
             post_processing: self.post_processing,
             texture_lod_bias: 0.0,
@@ -313,6 +313,7 @@ impl Settings {
                 Quality::Medium => 0.28,
                 Quality::High => 0.36,
             },
+            film_grade: self.film_grade,
             particles: match self.effects_quality {
                 Quality::Low => 0.4,
                 Quality::Medium => 1.0,

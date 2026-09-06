@@ -156,6 +156,9 @@ pub struct RenderSettings {
     pub particles: f32,
     /// Strength of the shared high-frequency detail layer, 0 disables it.
     pub detail: f32,
+    /// The per-map warm/cool split-tone. Off means the picture is graded by
+    /// exposure alone.
+    pub film_grade: bool,
 }
 
 impl Default for RenderSettings {
@@ -176,6 +179,7 @@ impl Default for RenderSettings {
             shadows: true,
             particles: 1.0,
             detail: 0.30,
+            film_grade: true,
         }
     }
 }
@@ -728,6 +732,11 @@ impl Renderer {
         let fog_start = env.fog_start * self.settings.view_distance;
         let fog_end = env.fog_end * self.settings.view_distance;
 
+        let (warm, cool) = if self.settings.film_grade {
+            (env.grade_warm, env.grade_cool)
+        } else {
+            ([1.0; 3], [1.0; 3])
+        };
         let fog = to_linear(env.fog_color);
         let sky_top = to_linear(env.sky_top);
         let sky_horizon = to_linear(env.sky_horizon);
@@ -755,8 +764,10 @@ impl Renderer {
                 if self.settings.post_processing { self.settings.vignette } else { 0.0 },
             ],
             sun: [-env.sun_dir.x, -env.sun_dir.y, -env.sun_dir.z, env.cloud_cover],
-            warm: [env.grade_warm[0], env.grade_warm[1], env.grade_warm[2], env.fog_height_falloff],
-            cool: [env.grade_cool[0], env.grade_cool[1], env.grade_cool[2], env.fog_floor],
+            // The w channels carry fog shape, not colour, so the grade toggle
+            // only ever neutralises the tints.
+            warm: [warm[0], warm[1], warm[2], env.fog_height_falloff],
+            cool: [cool[0], cool[1], cool[2], env.fog_floor],
             gloss: self.gloss,
             grade: [
                 self.settings.detail,

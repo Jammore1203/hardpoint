@@ -339,7 +339,11 @@ fn detail_modulation(uv: vec2<f32>, world_pos: vec3<f32>) -> f32 {
     let strength = G.grade.x;
     if (strength <= 0.001) { return 1.0; }
     let d = length(world_pos - G.camera_pos.xyz);
-    let near = 1.0 - smoothstep(4.0, 22.0, d);
+    // Out to thirty-four metres rather than twenty-two. The layer costs one
+    // sample of a texture already resident and it is what keeps a floor from
+    // going flat as it recedes; twenty-two metres is close enough that on an
+    // open map most of the ground was past it.
+    let near = 1.0 - smoothstep(6.0, 34.0, d);
     if (near <= 0.001) { return 1.0; }
     let n = textureSample(world_tex, world_smp, uv * 6.0, i32(G.grade.y)).r;
     return 1.0 + (n - 0.5) * strength * near;
