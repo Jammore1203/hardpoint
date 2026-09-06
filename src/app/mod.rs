@@ -1274,7 +1274,11 @@ fn tour_camera(map: &crate::maps::MapData, now: f64) -> (Vec3, f32, f32) {
     const HOLD: f64 = 4.0;
     let i = ((now / HOLD) as usize) % map.spawns.len();
     let t = ((now / HOLD).fract()) as f32;
-    let at = map.spawns[i].pos + Vec3::Y * 1.62;
+    // HARDPOINT_TOUR_UP lifts the eye, for looking at rooflines and skylines
+    // rather than at the ground floor.
+    let lift: f32 = std::env::var("HARDPOINT_TOUR_UP").ok()
+        .and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    let at = map.spawns[i].pos + Vec3::Y * (1.62 + lift);
     let target = Vec3::new(centre.x, at.y - 1.0, centre.z);
     let d = target - at;
     // A few degrees of drift either side of the aim, so a static scene still
