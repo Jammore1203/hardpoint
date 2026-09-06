@@ -53,9 +53,11 @@ pub struct MapMesh {
 pub enum BakeQuality {
     /// Ambient only; instant.
     Flat,
-    /// Sun with cast shadows.
+    /// Sun with cast shadows, contact occlusion, and light from emissive
+    /// surfaces.
     Shadows,
-    /// Sun, shadows and ambient occlusion.
+    /// All of that plus long-range sky visibility, which is what makes the
+    /// underside of a catwalk read as sheltered rather than merely dim.
     Full,
 }
 
@@ -702,7 +704,12 @@ fn bake_light(
         b += l.color.z * att;
     }
 
-    if quality == BakeQuality::Full {
+    // Contact shading is the cheapest lighting in the bake -- four rays a
+    // metre long, against eight rays sixty metres long for the sun -- and it
+    // is what stops geometry looking like it is hovering a centimetre above
+    // whatever it stands on. There is no reason for the middle setting to go
+    // without it.
+    if quality != BakeQuality::Flat {
         let ao = ambient_occlusion(map, p, n);
         r *= ao;
         g *= ao;
