@@ -607,20 +607,38 @@ fn bake_light(
             let up = if sun.y.abs() > 0.9 { Vec3::Z } else { Vec3::Y };
             let tangent = sun.cross(up).normalize_or_zero();
             let bitangent = tangent.cross(sun);
-            const SPREAD: f32 = 0.055;
-            const OFFSETS: [(f32, f32); 4] = [
-                (0.0, 0.0), (0.94, 0.34), (-0.5, 0.87), (-0.5, -0.87),
+            // The penumbra has to be wider than a lighting cell or it does
+            // not exist: light is sampled every 1.7 m or so and interpolated
+            // between samples, so a shadow edge that goes from full sun to
+            // full shade inside half a metre lands entirely between two
+            // samples and comes out as a hard diagonal across the triangles.
+            // On a bright ground -- snow especially -- that reads as the
+            // ground being paved in polygons. Two rings, eight rays, spread
+            // wide enough that the transition takes a couple of cells and the
+            // interpolation has something to interpolate.
+            // Cloud cover widens the source. An overcast sky is a very large
+            // light and casts almost no edge; a clear one is a point and
+            // casts a hard one.
+            let spread = 0.10 + env.cloud_cover * 0.22;
+            const OFFSETS: [(f32, f32); 8] = [
+                (0.00, 0.00), (0.50, 0.00), (-0.25, 0.43), (-0.25, -0.43),
+                (1.00, 0.00), (-0.50, 0.87), (-0.50, -0.87), (0.20, 0.35),
             ];
             let origin = p + n * 0.06;
             let mut open = 0.0f32;
             for (ox, oy) in OFFSETS {
-                let d = (sun + tangent * (ox * SPREAD) + bitangent * (oy * SPREAD)).normalize();
+                let d = (sun + tangent * (ox * spread) + bitangent * (oy * spread)).normalize();
                 if !map.collision.trace_ray(origin, d, 60.0, TraceMask::Shot).hit {
-                    open += 0.25;
+                    open += 0.125;
                 }
             }
             open
         };
+        // ...and it also takes most of the depth out of the shadow. Under
+        // eight tenths cloud a shadow is a suggestion, not a hole; without
+        // this a heavily overcast arctic map read as noon in a desert, with
+        // black-bottomed shapes lying all over the snow.
+        let visible = 1.0 - (1.0 - visible) * (1.0 - env.cloud_cover * 0.62);
         r += env.sun_color[0] * ndotl * visible;
         g += env.sun_color[1] * ndotl * visible;
         b += env.sun_color[2] * ndotl * visible;
@@ -652,7 +670,7 @@ fn bake_light(
         let falloff = 1.0 - dist / l.radius;
         let att = falloff * falloff * ndl;
         if att < 0.002 { continue; }
-        if quality == BakeQuality::Full && !no_shadow {
+        if quality != BakeQuality::Flat && !no_shadow {
             let origin = p + n * 0.06;
             if map.collision.trace_ray(origin, dir, dist - 0.12, TraceMask::Shot).hit {
                 continue;
@@ -748,8 +766,13 @@ fn grime_noise(p: Vec3) -> f32 {
 /// is squashed so the pattern runs in bands down a wall the way water staining
 /// does, rather than in isotropic blobs.
 fn weathering(p: Vec3) -> f32 {
+    // Both octaves have to stay well above the lighting cell size or the
+    // per-vertex sampling turns them into flat triangular facets -- which is
+    // exactly what happened on Whiteout, where a nine-metre octave sampled
+    // every 1.7 m paved the snow with hard-edged polygons. Eighteen and ten
+    // metres are safely oversampled at that spacing.
     let q = Vec3::new(p.x, p.y * 0.55, p.z);
-    let n = grime_noise(q * 0.070) * 0.62 + grime_noise(q * 0.190 + Vec3::splat(11.3)) * 0.38;
+    let n = grime_noise(q * 0.055) * 0.68 + grime_noise(q * 0.100 + Vec3::splat(11.3)) * 0.32;
     0.83 + n * 0.26
 }
 
