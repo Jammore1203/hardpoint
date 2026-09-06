@@ -519,6 +519,32 @@ fn gen_foliage(p: &mut Painter, tint: [u8; 3], cutout: bool, seed: u32) {
     if !cutout { p.grime(0.3, seed); }
 }
 
+/// Lake ice: a smooth pale sheet with pressure cracks and frozen bubbles.
+///
+/// Ice shared the water generator, which is fine while water is a gentle
+/// ripple field and wrong the moment water is given the contrast it needs --
+/// the glints that make a sea read as a sea turn a frozen pond into static.
+fn gen_ice(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    p.shade_relief(tint, 0.10, |u, v| {
+        // Pressure cracks: thin ridged lines, warped so they wander and fork.
+        let warp = fbm(u * 3.0, v * 3.0, 3, 3, seed ^ 0x1B) - 0.5;
+        let c1 = ridged(u * 5.0 + warp * 1.4, v * 5.0 - warp * 1.1, 5, 3, seed);
+        let c2 = ridged(u * 11.0 - warp * 0.9, v * 11.0 + warp * 1.3, 11, 2, seed ^ 0x44);
+        let crack = smoothstep(0.80, 0.97, c1) + smoothstep(0.86, 0.99, c2) * 0.5;
+
+        // Cloudy patches where the ice froze with air in it.
+        let cloud = fbm(u * 6.0, v * 6.0, 6, 4, seed ^ 0x7C);
+        // Bubbles: small bright points trapped near the surface.
+        let (b1, _) = worley2(u * 26.0, v * 26.0, 26, seed ^ 0xB2);
+        let bubble = smoothstep(0.90, 1.0, 1.0 - b1);
+
+        let albedo = 0.94 + (cloud - 0.5) * 0.16 + bubble * 0.30 - crack * 0.16;
+        // Cracks are grooves; the cloudy patches stand very slightly proud.
+        let height = -crack * 0.9 + (cloud - 0.5) * 0.30 + bubble * 0.20;
+        (albedo, height)
+    });
+}
+
 /// Polished stone with veining.
 ///
 /// Marble was `gen_rough`, which is the concrete generator with the grain
@@ -1175,7 +1201,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         RoofMetal => gen_corrugated(&mut p, tint, 14.0, seed),
         Foliage => gen_foliage(&mut p, tint, true, seed),
         Rock => gen_granular(&mut p, tint, 16.0, 0.26, seed),
-        Ice => gen_water(&mut p, tint, seed),
+        Ice => gen_ice(&mut p, tint, seed),
         WaterSurface => gen_water(&mut p, tint, seed ^ 0x9),
         Fabric => gen_woven(&mut p, tint, 10.0, 0.14, seed),
         DirtRoad => gen_granular(&mut p, tint, 16.0, 0.20, seed),
