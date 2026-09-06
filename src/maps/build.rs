@@ -419,6 +419,140 @@ impl MapBuilder {
         self.boxc(cx, y, cz, w, h, w, mat)
     }
 
+    /// Distant scenery outside the playspace.
+    ///
+    /// A level that stops at its own walls reads as a diorama: a few buildings
+    /// on a plane with nothing beyond them. Real competitive maps are almost
+    /// entirely surrounded by geometry you can never reach, and that is most
+    /// of why they feel like a place rather than an arena. This is that
+    /// geometry: never collided with, never navigated, never lit properly,
+    /// just a silhouette in the haze past the edge of play.
+    ///
+    /// `seed` decides the skyline, so a map's backdrop is stable between runs
+    /// and between clients.
+    #[allow(clippy::too_many_arguments)]
+    pub fn backdrop(&mut self, seed: u32, ring: f32, count: u32,
+                    min_h: f32, max_h: f32, mats: &[Mat]) {
+        let Some(space) = self.playspace else { return };
+        let mut rng = Rng::seeded(seed ^ 0xBD_0000);
+        let cx = (space.min.x + space.max.x) * 0.5;
+        let cz = (space.min.z + space.max.z) * 0.5;
+        let half_x = (space.max.x - space.min.x) * 0.5;
+        let half_z = (space.max.z - space.min.z) * 0.5;
+
+        for i in 0..count {
+            // Spread around the ring rather than at random angles, so the
+            // horizon has no gaps for the void to show through. Two depths:
+            // a near row that reads as the next street, and a far row that
+            // reads as the rest of the town.
+            let a = (i as f32 + rng.range(0.15, 0.85)) / count as f32 * std::f32::consts::TAU;
+            let far = i % 3 == 0;
+            let depth = if far { rng.range(ring * 0.7, ring * 1.6) } else { rng.range(4.0, ring * 0.55) };
+            let (sx, sz) = (a.cos(), a.sin());
+            // Project out to the edge of the playspace along this angle, then
+            // step further out by `depth`.
+            let edge = (half_x / sx.abs().max(0.15)).min(half_z / sz.abs().max(0.15));
+            let d = edge + 8.0 + depth;
+            let x = cx + sx * d;
+            let z = cz + sz * d;
+
+            // The far row is taller, so the skyline has a profile instead of
+            // being a single band of equal blocks.
+            let h = if far { rng.range(max_h * 0.8, max_h * 1.7) } else { rng.range(min_h, max_h) };
+            let w = rng.range(9.0, 22.0);
+            let dpt = rng.range(9.0, 22.0);
+            let mat = mats[(rng.next_u32() as usize) % mats.len().max(1)];
+            let b = self.decor(x - w * 0.5, space.min.y, z - dpt * 0.5, w, h, dpt, mat);
+            b.tex_scale = 3.5;
+            // Backdrop is lit flat and brightly: it sits in the haze, and
+            // shading it like playable geometry only makes it look near.
+            b.light_scale = 1.25;
+
+            // A roofline detail or two, because a skyline of plain boxes reads
+            // as a wall of boxes.
+            if rng.chance(0.55) {
+                let tw = w * rng.range(0.25, 0.5);
+                let th = rng.range(2.0, 7.0);
+                self.decor(x - tw * 0.5 + rng.range(-w * 0.2, w * 0.2), space.min.y + h,
+                           z - tw * 0.5, tw, th, tw, mat).light_scale = 1.25;
+            }
+        }
+    }
+
+    /// A ridge of low scenery just outside the playspace: treelines, spoil
+    /// heaps, a harbour wall. Fills the gap between the play area and the
+    /// backdrop so the horizon has no seam at ground level.
+    pub fn skirt(&mut self, seed: u32, count: u32, height: f32, mat: Mat) {
+        let Some(space) = self.playspace else { return };
+        let mut rng = Rng::seeded(seed ^ 0x5417);
+        let cx = (space.min.x + space.max.x) * 0.5;
+        let cz = (space.min.z + space.max.z) * 0.5;
+        let half_x = (space.max.x - space.min.x) * 0.5;
+        let half_z = (space.max.z - space.min.z) * 0.5;
+        for i in 0..count {
+            let a = (i as f32 + 0.5) / count as f32 * std::f32::consts::TAU;
+            let (sx, sz) = (a.cos(), a.sin());
+            let edge = (half_x / sx.abs().max(0.12)).min(half_z / sz.abs().max(0.12));
+            let d = edge + rng.range(2.0, 7.0);
+            let (x, z) = (cx + sx * d, cz + sz * d);
+            let h = height * rng.range(0.7, 1.5);
+            // Wide and overlapping: the skirt has to be continuous, because a
+            // gap in it is a hole through to nothing at ground level, which is
+            // exactly the seam the backdrop exists to hide.
+            let w = rng.range(14.0, 26.0);
+            let d = rng.range(8.0, 16.0);
+            self.decor(x - w * 0.5, space.min.y - 2.0, z - d * 0.5, w, h + 2.0, d, mat)
+                .light_scale = 1.1;
+        }
+    }
+
+    /// A stack of floors joined by staircases that alternate ends, with a
+    /// balcony overlooking whatever is outside it.
+    ///
+    /// The point is vertical play that is actually reachable: a route up that
+    /// is fought over on the way, rather than a roof you can see and not get
+    /// to. Alternating the flights matters - stacking them leaves a climber's
+    /// head in the flight above and quietly seals the building.
+    #[allow(clippy::too_many_arguments)]
+    pub fn stack_house(&mut self, x: f32, z: f32, sx: f32, sz: f32, y: f32, floors: u32,
+                       doors: u8, wall: Mat, floor_mat: Mat) {
+        let well = STAIR_W + 0.6;
+        for f in 0..floors {
+            let fy = y + f as f32 * STOREY;
+            if f == 0 {
+                self.floor(x, z, sx, sz, fy, floor_mat);
+            }
+            // Walls with openings on the requested sides.
+            let d = if f == 0 { doors } else { doors | DOOR_PX };
+            if d & DOOR_NZ != 0 { self.wall_x_door(x, z, sx, fy, STOREY, sx * 0.5, wall); }
+            else { self.wall_x(x, z, sx, fy, STOREY, wall); }
+            if d & DOOR_PZ != 0 { self.wall_x_door(x, z + sz, sx, fy, STOREY, sx * 0.5, wall); }
+            else { self.wall_x(x, z + sz, sx, fy, STOREY, wall); }
+            if d & DOOR_NX != 0 { self.wall_z_door(x, z, sz, fy, STOREY, sz * 0.5, wall); }
+            else { self.wall_z(x, z, sz, fy, STOREY, wall); }
+            // The +X face is a balcony rail above the ground floor, so the
+            // upper storeys can shoot out and be shot at.
+            if f == 0 {
+                if d & DOOR_PX != 0 { self.wall_z_door(x + sx, z, sz, fy, STOREY, sz * 0.5, wall); }
+                else { self.wall_z(x + sx, z, sz, fy, STOREY, wall); }
+            } else {
+                self.wall_z(x + sx, z, sz, fy, 1.05, wall);
+            }
+
+            // The floor above, with the stairwell cut out of it, and the
+            // flight that reaches it. Flights alternate ends.
+            let top = fy + STOREY;
+            let near_z = f % 2 == 0;
+            let well_z = if near_z { z + 0.4 } else { z + sz - well - 0.4 };
+            self.floor_with_hole(x, z, sx, sz, top, floor_mat,
+                                 x + sx - well - 0.4, well_z, well, well);
+            let axis = if near_z { RampAxis::PosZ } else { RampAxis::NegZ };
+            let run = (STOREY * 1.5).max(1.6);
+            let stair_z = if near_z { well_z + well } else { well_z - run };
+            self.stairs(x + sx - well - 0.2, fy, stair_z, STAIR_W, run, STOREY, axis, floor_mat);
+        }
+    }
+
     /// A wall panel that can be shot away.
     ///
     /// The point is not spectacle: it is that a position defended by cover can

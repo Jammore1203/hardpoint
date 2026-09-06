@@ -43,7 +43,7 @@ fn env_desert() -> Env {
     Env {
         fog_color: [0.78, 0.71, 0.56],
         fog_start: 34.0,
-        fog_end: 132.0,
+        fog_end: 178.2,
         sky_top: [0.32, 0.50, 0.74],
         sky_horizon: [0.83, 0.79, 0.65],
         sun_dir: Vec3::new(-0.35, -0.86, -0.37).normalize(),
@@ -62,7 +62,7 @@ fn env_industrial() -> Env {
     Env {
         fog_color: [0.30, 0.32, 0.36],
         fog_start: 18.0,
-        fog_end: 95.0,
+        fog_end: 128.2,
         sky_top: [0.18, 0.20, 0.25],
         sky_horizon: [0.34, 0.35, 0.38],
         sun_dir: Vec3::new(0.28, -0.90, 0.33).normalize(),
@@ -81,7 +81,7 @@ fn env_village() -> Env {
     Env {
         fog_color: [0.62, 0.62, 0.60],
         fog_start: 28.0,
-        fog_end: 118.0,
+        fog_end: 159.3,
         sky_top: [0.34, 0.44, 0.58],
         sky_horizon: [0.70, 0.70, 0.68],
         sun_dir: Vec3::new(0.46, -0.78, -0.42).normalize(),
@@ -100,7 +100,7 @@ fn env_jungle() -> Env {
     Env {
         fog_color: [0.36, 0.46, 0.34],
         fog_start: 16.0,
-        fog_end: 85.0,
+        fog_end: 114.8,
         sky_top: [0.30, 0.44, 0.40],
         sky_horizon: [0.52, 0.60, 0.46],
         sun_dir: Vec3::new(-0.20, -0.94, 0.28).normalize(),
@@ -119,7 +119,7 @@ fn env_arctic() -> Env {
     Env {
         fog_color: [0.80, 0.84, 0.90],
         fog_start: 12.0,
-        fog_end: 78.0,
+        fog_end: 105.3,
         sky_top: [0.56, 0.64, 0.76],
         sky_horizon: [0.82, 0.86, 0.92],
         sun_dir: Vec3::new(0.38, -0.66, 0.65).normalize(),
@@ -138,7 +138,7 @@ fn env_urban() -> Env {
     Env {
         fog_color: [0.52, 0.52, 0.55],
         fog_start: 24.0,
-        fog_end: 106.0,
+        fog_end: 143.1,
         sky_top: [0.26, 0.34, 0.48],
         sky_horizon: [0.60, 0.61, 0.63],
         sun_dir: Vec3::new(-0.52, -0.74, 0.42).normalize(),
@@ -157,7 +157,7 @@ fn env_shipyard() -> Env {
     Env {
         fog_color: [0.56, 0.60, 0.64],
         fog_start: 26.0,
-        fog_end: 112.0,
+        fog_end: 151.2,
         sky_top: [0.30, 0.40, 0.54],
         sky_horizon: [0.66, 0.70, 0.74],
         sun_dir: Vec3::new(0.55, -0.72, -0.42).normalize(),
@@ -176,7 +176,7 @@ fn env_foundry() -> Env {
     Env {
         fog_color: [0.26, 0.23, 0.22],
         fog_start: 12.0,
-        fog_end: 70.0,
+        fog_end: 94.5,
         sky_top: [0.14, 0.13, 0.14],
         sky_horizon: [0.30, 0.26, 0.24],
         sun_dir: Vec3::new(0.18, -0.95, 0.24).normalize(),
@@ -195,7 +195,7 @@ fn env_coastal() -> Env {
     Env {
         fog_color: [0.66, 0.70, 0.72],
         fog_start: 30.0,
-        fog_end: 124.0,
+        fog_end: 167.4,
         sky_top: [0.32, 0.46, 0.64],
         sky_horizon: [0.72, 0.76, 0.78],
         sun_dir: Vec3::new(-0.60, -0.70, -0.38).normalize(),
@@ -214,7 +214,7 @@ fn env_bunker() -> Env {
     Env {
         fog_color: [0.14, 0.15, 0.16],
         fog_start: 8.0,
-        fog_end: 48.0,
+        fog_end: 64.8,
         sky_top: [0.06, 0.06, 0.07],
         sky_horizon: [0.10, 0.10, 0.11],
         sun_dir: Vec3::new(0.0, -1.0, 0.05).normalize(),
@@ -233,7 +233,7 @@ fn env_railyard() -> Env {
     Env {
         fog_color: [0.48, 0.48, 0.50],
         fog_start: 26.0,
-        fog_end: 110.0,
+        fog_end: 148.5,
         sky_top: [0.24, 0.30, 0.42],
         sky_horizon: [0.56, 0.57, 0.58],
         sun_dir: Vec3::new(0.62, -0.68, 0.39).normalize(),
@@ -252,7 +252,7 @@ fn env_overpass() -> Env {
     Env {
         fog_color: [0.44, 0.43, 0.42],
         fog_start: 20.0,
-        fog_end: 105.0,
+        fog_end: 141.8,
         sky_top: [0.24, 0.28, 0.36],
         sky_horizon: [0.52, 0.50, 0.47],
         sun_dir: Vec3::new(-0.44, -0.82, 0.36).normalize(),
@@ -471,6 +471,15 @@ fn ironveil(b: &mut MapBuilder) {
     b.decor(-23.0, 1.6, -1.0, 3.0, 0.5, 10.0, Mat::HullPainted);
     step_up(b, -20.0, 0.05, -5.1, 2.0, 3.0, 3.45, RampAxis::NegX, Mat::MetalPlateDiamond);
 
+    // --- Vertical: a three-storey block, and ladders onto the hangar roofs.
+    //     With the stairs working these are real ground, not scenery.
+    b.stack_house(30.0, -4.0, 11.0, 12.0, 0.05, 3, DOOR_NX | DOOR_NZ,
+                  Mat::ConcretePanel, Mat::ConcreteFloor);
+    b.access_stair(-22.0, -15.4, 0.05, 9.0, false, false, Mat::MetalPlateDiamond);
+    b.access_stair(22.0, 15.4, 0.05, 9.0, false, true, Mat::MetalPlateDiamond);
+    b.half_wall(-34.0, 9.0, -35.0, 24.0, true, Mat::Corrugated);
+    b.half_wall(10.0, 9.0, 35.0, 24.0, true, Mat::Corrugated);
+
     // --- Breakable panels: shortcuts that have to be made before they exist.
     b.breakable_wall_z(-9.0, 0.05, -3.0, 6.0, 3.2, 260.0, Mat::Corrugated);
     b.breakable_wall_z(9.0, 0.05, -3.0, 6.0, 3.2, 260.0, Mat::Corrugated);
@@ -542,6 +551,11 @@ fn ironveil(b: &mut MapBuilder) {
         CoverPiece::Block(Mat::Concrete, 3.4, 1.5),
         CoverPiece::Pipes(Mat::PipeMetal),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A01, 34, 3.0, Mat::SandRock);
+    b.backdrop(0x1A01, 40.0, 52, 6.0, 16.0, &[Mat::SandRock, Mat::Cinderblock, Mat::ConcretePanel]);
+
 }
 
 // ================================================================ STORMWORKS
@@ -695,6 +709,11 @@ fn stormworks(b: &mut MapBuilder) {
         CoverPiece::Barrels(Mat::BarrelRust),
         CoverPiece::Pipes(Mat::PipeMetal),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A0B, 34, 2.6, Mat::Gravel);
+    b.backdrop(0x1A0B, 34.0, 48, 8.0, 22.0, &[Mat::Corrugated, Mat::MetalRust, Mat::BrickRed]);
+
 }
 
 // =================================================================== BELVOIR
@@ -800,6 +819,11 @@ fn belvoir(b: &mut MapBuilder) {
     b.barrier(14.0, 0.0, -14.0, 6.0, 0.6);
     b.barrier(-20.0, 0.0, -18.0, 0.6, 6.0);
 
+    // --- A three-storey house on the square's west corner: the balconies
+    //     look down onto the market hall roof, which is now walkable.
+    b.stack_house(-22.0, -8.0, 10.0, 11.0, 0.0, 3, DOOR_PZ | DOOR_NX,
+                  Mat::Plaster, Mat::WoodFloor);
+
     // --- Covered market hall over the north half of the square.
     //
     // A twenty-six by twenty-two metre paved square with a fountain in it is a
@@ -885,6 +909,11 @@ fn belvoir(b: &mut MapBuilder) {
         CoverPiece::Block(Mat::StoneWall, 3.0, 1.3),
         CoverPiece::Sandbags(Mat::Sandbag),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A02, 34, 3.2, Mat::StoneWall);
+    b.backdrop(0x1A02, 40.0, 60, 7.0, 18.0, &[Mat::BrickPale, Mat::Plaster, Mat::RoofTile]);
+
 }
 
 // ================================================================= GREENLINE
@@ -1101,6 +1130,11 @@ fn greenline(b: &mut MapBuilder) {
         CoverPiece::Sandbags(Mat::Sandbag),
         CoverPiece::Pipes(Mat::PipeMetal),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A03, 34, 4.0, Mat::Grass);
+    b.backdrop(0x1A03, 38.0, 52, 9.0, 20.0, &[Mat::Foliage, Mat::Rock, Mat::JungleFloor]);
+
 }
 
 // ================================================================== WHITEOUT
@@ -1248,6 +1282,11 @@ fn whiteout(b: &mut MapBuilder) {
         CoverPiece::Sandbags(Mat::Sandbag),
         CoverPiece::Container(Mat::ShippingGreen),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A04, 34, 3.4, Mat::Snow);
+    b.backdrop(0x1A04, 42.0, 48, 6.0, 15.0, &[Mat::SnowRock, Mat::Snow, Mat::MetalPanel]);
+
 }
 
 // ================================================================== HIGHRISE
@@ -1413,6 +1452,11 @@ fn highrise(b: &mut MapBuilder) {
         CoverPiece::Barrels(Mat::Barrel),
         CoverPiece::Sandbags(Mat::Sandbag),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A05, 34, 2.4, Mat::Asphalt);
+    b.backdrop(0x1A05, 36.0, 60, 14.0, 34.0, &[Mat::BrickRed, Mat::Plaster, Mat::ConcretePanel]);
+
 }
 
 // =================================================================== DRYDOCK
@@ -1588,6 +1632,11 @@ fn drydock(b: &mut MapBuilder) {
         CoverPiece::Pipes(Mat::PipeMetal),
         CoverPiece::Block(Mat::HullPainted, 3.4, 1.4),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A06, 34, 2.8, Mat::Concrete);
+    b.backdrop(0x1A06, 38.0, 52, 8.0, 24.0, &[Mat::Corrugated, Mat::MetalRust, Mat::HullPainted]);
+
 }
 
 // =================================================================== FOUNDRY
@@ -1750,6 +1799,11 @@ fn foundry(b: &mut MapBuilder) {
         CoverPiece::Pipes(Mat::PipeMetal),
         CoverPiece::Block(Mat::MetalRust, 3.0, 1.3),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A07, 34, 2.6, Mat::Gravel);
+    b.backdrop(0x1A07, 30.0, 44, 10.0, 26.0, &[Mat::BrickRed, Mat::MetalRust, Mat::Corrugated]);
+
 }
 
 // ================================================================== SALTBITE
@@ -1906,6 +1960,11 @@ fn saltbite(b: &mut MapBuilder) {
         CoverPiece::Crates(Mat::WoodCrate, 1.4),
         CoverPiece::Block(Mat::Rock, 3.2, 1.4),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A08, 34, 2.6, Mat::Rock);
+    b.backdrop(0x1A08, 40.0, 44, 5.0, 13.0, &[Mat::Rock, Mat::StoneWall, Mat::SandRock]);
+
 }
 
 // ================================================================== DEEPWELL
@@ -2055,6 +2114,11 @@ fn deepwell(b: &mut MapBuilder) {
         CoverPiece::Crates(Mat::WoodCrate, 1.3),
         CoverPiece::Barrels(Mat::BarrelRust),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A09, 34, 2.0, Mat::Concrete);
+    b.backdrop(0x1A09, 26.0, 36, 4.0, 9.0, &[Mat::Bunker, Mat::Concrete]);
+
 }
 
 // ================================================================== JUNCTION
@@ -2094,6 +2158,11 @@ fn junction(b: &mut MapBuilder) {
         // rather than decoration. Shallow enough that bots will use it too.
         b.stairs(x - 3.0, 0.0, z - 0.9, 1.6, 3.0, 4.0, RampAxis::PosX, Mat::MetalPlateDiamond);
     }
+
+    // --- A three-storey relay house at the yard's edge, so the tracks can be
+    //     watched from something other than the water tower.
+    b.stack_house(-44.0, -12.0, 11.0, 11.0, 0.0, 3, DOOR_PX | DOOR_PZ,
+                  Mat::BrickRed, Mat::WoodFloor);
 
     // --- Aisle obstructions.
     //
@@ -2219,6 +2288,11 @@ fn junction(b: &mut MapBuilder) {
         CoverPiece::Block(Mat::Concrete, 3.2, 1.4),
         CoverPiece::Pipes(Mat::PipeMetal),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A0A, 34, 2.8, Mat::Gravel);
+    b.backdrop(0x1A0A, 40.0, 56, 7.0, 19.0, &[Mat::Corrugated, Mat::BrickRed, Mat::MetalRust]);
+
 }
 
 // ================================================================== OVERPASS
@@ -2291,10 +2365,17 @@ fn overpass(b: &mut MapBuilder) {
         (14.0, 22.0, true), (28.0, 24.0, false),
     ] {
         let (sx, sz) = if along { (9.0, 3.4) } else { (3.4, 9.0) };
-        b.boxc(x, 0.0, z, sx, 2.6, sz, Mat::Concrete).with_scale(2.6);
+        // Cover, not a step: tall enough to break a sightline, short enough
+        // that navigation does not offer climbing it next to the four-metre
+        // structures behind, which is a climb the mover cannot make.
+        b.boxc(x, 0.0, z, sx, 1.9, sz, Mat::Concrete).with_scale(2.6);
     }
     b.cover_line(-32.0, 0.0, -14.0, 22.0, false, 3, Mat::Concrete);
     b.cover_line(32.0, 0.0, -8.0, 22.0, false, 3, Mat::Concrete);
+
+    // --- A three-storey control tower beside the road, reaching the deck.
+    b.stack_house(-32.0, -14.0, 10.0, 11.0, 0.0, 3, DOOR_PX | DOOR_PZ,
+                  Mat::Bunker, Mat::ConcreteFloor);
 
     // --- Toll booth row: a line of small hard covers across the road.
     for i in 0..4 {
@@ -2364,4 +2445,9 @@ fn overpass(b: &mut MapBuilder) {
         CoverPiece::Crates(Mat::WoodCrate, 1.4),
         CoverPiece::Container(Mat::ShippingBlue),
     ]);
+    // --- Beyond the wire: scenery that is never reached, only seen.
+    //     A level that stops at its own walls reads as a diorama.
+    b.skirt(0x1A0C, 34, 2.6, Mat::Gravel);
+    b.backdrop(0x1A0C, 34.0, 52, 8.0, 22.0, &[Mat::Concrete, Mat::BrickPale, Mat::ConcretePanel]);
+
 }
