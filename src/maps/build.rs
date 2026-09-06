@@ -465,9 +465,11 @@ impl MapBuilder {
             let mat = mats[(rng.next_u32() as usize) % mats.len().max(1)];
             let b = self.decor(x - w * 0.5, space.min.y, z - dpt * 0.5, w, h, dpt, mat);
             b.tex_scale = 3.5;
-            // Backdrop is lit flat and brightly: it sits in the haze, and
-            // shading it like playable geometry only makes it look near.
-            b.light_scale = 1.25;
+            // Backdrop is lit flat: it sits in the haze, and shading it like
+            // playable geometry makes it look near. Not brightly, though - on
+            // a pale map an over-lit backdrop stops reading as distance and
+            // starts reading as white cubes stuck to the sky.
+            b.light_scale = 1.08;
 
             // A roofline detail or two, because a skyline of plain boxes reads
             // as a wall of boxes.
@@ -475,7 +477,7 @@ impl MapBuilder {
                 let tw = w * rng.range(0.25, 0.5);
                 let th = rng.range(2.0, 7.0);
                 self.decor(x - tw * 0.5 + rng.range(-w * 0.2, w * 0.2), space.min.y + h,
-                           z - tw * 0.5, tw, th, tw, mat).light_scale = 1.25;
+                           z - tw * 0.5, tw, th, tw, mat).light_scale = 1.08;
             }
         }
     }

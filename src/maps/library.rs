@@ -69,11 +69,14 @@ fn env_industrial() -> Env {
         sky_top: [0.18, 0.20, 0.25],
         sky_horizon: [0.34, 0.35, 0.38],
         sun_dir: Vec3::new(0.28, -0.90, 0.33).normalize(),
-        sun_color: [0.82, 0.84, 0.92],
-        ambient_sky: [0.24, 0.26, 0.32],
-        ambient_ground: [0.13, 0.13, 0.14],
-        grade_warm: [1.02, 1.00, 0.98],
-        grade_cool: [0.92, 0.97, 1.08],
+        sun_color: [0.90, 0.90, 0.94],
+        // Raised, and warmed a little: the only light in here comes from roof
+        // lamps, and at the old levels an unlit wall was too dark to read the
+        // shape of, which is a gameplay problem before it is a look one.
+        ambient_sky: [0.38, 0.39, 0.43],
+        ambient_ground: [0.24, 0.23, 0.22],
+        grade_warm: [1.05, 1.01, 0.95],
+        grade_cool: [0.94, 0.98, 1.06],
         ambience: Ambience::Industrial,
         track: MusicTrack::Assault,
         weather: Weather::None,
@@ -107,17 +110,20 @@ fn env_village() -> Env {
 
 fn env_jungle() -> Env {
     Env {
-        fog_color: [0.36, 0.46, 0.34],
+        // The green belongs on the leaves. Tinting the fog, the ambient, the
+        // sun and the grade green as well stacks four multiplications of the
+        // same colour and turns concrete, metal and skin green too.
+        fog_color: [0.46, 0.52, 0.44],
         fog_start: 16.0,
         fog_end: 114.8,
-        sky_top: [0.30, 0.44, 0.40],
-        sky_horizon: [0.52, 0.60, 0.46],
+        sky_top: [0.38, 0.48, 0.52],
+        sky_horizon: [0.62, 0.66, 0.58],
         sun_dir: Vec3::new(-0.20, -0.94, 0.28).normalize(),
-        sun_color: [0.98, 1.04, 0.82],
-        ambient_sky: [0.26, 0.34, 0.28],
-        ambient_ground: [0.16, 0.19, 0.13],
-        grade_warm: [1.02, 1.04, 0.92],
-        grade_cool: [0.92, 1.02, 0.96],
+        sun_color: [1.02, 1.02, 0.94],
+        ambient_sky: [0.36, 0.40, 0.38],
+        ambient_ground: [0.22, 0.23, 0.18],
+        grade_warm: [1.03, 1.02, 0.96],
+        grade_cool: [0.96, 1.01, 1.00],
         ambience: Ambience::Jungle,
         track: MusicTrack::Tension,
         weather: Weather::Rain,
@@ -1331,8 +1337,8 @@ fn whiteout(b: &mut MapBuilder) {
     ]);
     // --- Beyond the wire: scenery that is never reached, only seen.
     //     A level that stops at its own walls reads as a diorama.
-    b.skirt(0x1A04, 34, 3.4, Mat::Snow);
-    b.backdrop(0x1A04, 42.0, 48, 6.0, 15.0, &[Mat::SnowRock, Mat::Snow, Mat::MetalPanel]);
+    b.skirt(0x1A04, 34, 4.2, Mat::SnowRock);
+    b.backdrop(0x1A04, 46.0, 48, 5.0, 13.0, &[Mat::SnowRock, Mat::Rock, Mat::StoneWall]);
 
 }
 
