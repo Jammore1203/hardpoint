@@ -72,6 +72,14 @@ pub struct Hud {
     pub crosshair_bloom: f32,
     /// Set briefly when the player is hit, to shove the crosshair.
     pub flinch: (f32, f32),
+    /// How bloody the glass in front of the player is, 0..1.
+    ///
+    /// It climbs with every wound and comes off slowly, so it is a record of
+    /// the fight so far rather than a flash. A player at ten health has been
+    /// looking through the last thirty seconds of their own for a while.
+    pub visor: f32,
+    /// Rises the instant a wound lands, on top of `visor`.
+    pub visor_hit: f32,
 }
 
 impl Default for Hud {
@@ -94,6 +102,8 @@ impl Hud {
             chat_buffer: String::new(),
             crosshair_bloom: 0.0,
             flinch: (0.0, 0.0),
+            visor: 0.0,
+            visor_hit: 0.0,
         }
     }
 
@@ -106,6 +116,20 @@ impl Hud {
         self.pickup_text = None;
         self.chat_open = false;
         self.chat_buffer.clear();
+        self.visor = 0.0;
+        self.visor_hit = 0.0;
+    }
+
+    /// A wound throws blood onto the inside of the visor.
+    pub fn splash_visor(&mut self, strength: f32) {
+        self.visor = (self.visor + strength * 0.55).min(1.0);
+        self.visor_hit = (self.visor_hit + strength * 0.9).min(1.2);
+    }
+
+    /// Wipes the visor clean, for a fresh instance.
+    pub fn clear_visor(&mut self) {
+        self.visor = 0.0;
+        self.visor_hit = 0.0;
     }
 
     pub fn push_kill(&mut self, e: KillEntry) {
@@ -145,6 +169,10 @@ impl Hud {
         }
         self.flinch.0 *= (-9.0 * dt).exp();
         self.flinch.1 *= (-9.0 * dt).exp();
+        // The splash off a single wound clears in a second or so; the film
+        // built up over a fight takes the best part of a minute.
+        self.visor_hit *= (-2.2 * dt).exp();
+        self.visor *= (-0.055 * dt).exp();
         self.low_ammo_pulse += dt * 6.0;
     }
 }
@@ -208,6 +236,8 @@ pub fn draw(p: &mut Painter, f: &HudFrame) {
     if f.show_damage_numbers { draw_damage_numbers(p, f); }
     draw_announce(p, f, w, h);
     draw_bomb_progress(p, f, w, h);
+    draw_visor(p, f, w, h);
+    draw_instance_block(p, f, h, s);
 
     if !f.alive {
         draw_death_overlay(p, f, w, h);
@@ -545,6 +575,90 @@ fn draw_death_overlay(p: &mut Painter, f: &HudFrame, w: f32, h: f32) {
             "PRESS SPACE TO DEPLOY", Align::Center,
         );
     }
+}
+
+/// Blood on the inside of the visor.
+///
+/// It goes round the edges and stays out of the middle third, where the
+/// crosshair and everything the player is actually shooting at lives - the
+/// point is to make the state of the body legible from the corner of the eye,
+/// not to take the shot away. Health drives a permanent film; a fresh wound
+/// throws a heavier layer on top that runs off over a second.
+fn draw_visor(p: &mut Painter, f: &HudFrame, w: f32, h: f32) {
+    // `HARDPOINT_VISOR` pins the load, so the effect can be photographed
+    // without having to be shot at exactly the right moment.
+    let hurt = match std::env::var("HARDPOINT_VISOR") {
+        Ok(v) => v.parse().unwrap_or(0.85),
+        Err(_) => 1.0 - (f.health / 100.0).clamp(0.0, 1.0),
+    };
+    let film = (f.hud.visor * 0.55 + hurt * 0.75).clamp(0.0, 1.0);
+    let load = (film + f.hud.visor_hit * 0.9).min(1.35);
+    if load < 0.02 { return; }
+
+    // A fixed scatter, so the blood does not crawl about the screen between
+    // frames. Twenty-two marks is enough to read as a mess and few enough to
+    // leave the middle alone.
+    const MARKS: usize = 34;
+    for i in 0..MARKS {
+        let t = i as f32;
+        let hx = ((t * 12.9898).sin() * 43758.545).fract().abs();
+        let hy = ((t * 78.233).sin() * 43758.545).fract().abs();
+        let hs = ((t * 39.425).sin() * 43758.545).fract().abs();
+        // Push each mark out of the centre: the further from the middle it
+        // starts, the less it is moved.
+        let edge = if hx < 0.5 { hx * 0.34 } else { 0.66 + (hx - 0.5) * 0.68 };
+        let vert = if hy < 0.5 { hy * 0.46 } else { 0.54 + (hy - 0.5) * 0.92 };
+        let size = (110.0 + hs * 330.0) * (0.65 + load * 0.85);
+        // Marks appear in a fixed order as the load climbs, so the visor
+        // fills up steadily rather than every mark fading in at once.
+        let threshold = i as f32 / MARKS as f32 * 1.05;
+        let a = ((load - threshold) * 2.6).clamp(0.0, 1.0) * (0.58 + hs * 0.40);
+        if a < 0.01 { continue; }
+        let x = edge * w - size * 0.5;
+        let y = vert * h - size * 0.5;
+        let sprite = if hs > 0.66 { Sprite::BloodSpray }
+                     else if hs > 0.33 { Sprite::BloodSplat }
+                     else { Sprite::BloodPool };
+        p.sprite(x, y, size, size, sprite, [0.40, 0.022, 0.026, a]);
+    }
+}
+
+/// The clone block.
+///
+/// Every combatant here is an instance run off the same line, and dying is a
+/// stock movement rather than an ending. The readout that looks like set
+/// dressing carries real numbers: the iteration is how many times this player
+/// has been reprinted, and the fidelity falls off with each one, because a
+/// copy of a copy is what they are.
+fn draw_instance_block(p: &mut Painter, f: &HudFrame, h: f32, s: f32) {
+    let info = f.client.player_info(f.client.slot);
+    let deaths = info.map(|i| i.deaths).unwrap_or(0);
+    let serial = instance_serial(f.client.slot, f.client.name_of(f.client.slot));
+    let fidelity = (100.0 - deaths as f32 * 1.7).max(38.0);
+
+    let x = 34.0;
+    let y = h - 118.0 * s - 62.0;
+    p.text_shadow(x, y, theme::TINY, theme::TEXT_DIM, &serial);
+    let line = format!("ITERATION {:03}   FIDELITY {:.1}%", deaths + 1, fidelity);
+    // The fidelity figure turns as it falls, so a player who has been dying
+    // can see it without reading the number.
+    let c = if fidelity > 85.0 { theme::TEXT_DIM }
+            else if fidelity > 60.0 { theme::TEXT }
+            else { theme::WARN };
+    p.text_shadow(x, y + 15.0, theme::TINY, c, &line);
+}
+
+/// A stable designation for a player, derived from their slot and name so
+/// that it is the same on every client without being sent.
+fn instance_serial(slot: u8, name: &str) -> String {
+    let mut hash: u32 = 0x811c9dc5;
+    for b in name.as_bytes().iter().chain(std::iter::once(&slot)) {
+        hash ^= *b as u32;
+        hash = hash.wrapping_mul(0x01000193);
+    }
+    const LETTERS: &[u8] = b"ABCDEFGHJKLMNPRSTVWXYZ";
+    let l = LETTERS[(hash >> 24) as usize % LETTERS.len()] as char;
+    format!("INSTANCE {:04}-{}", hash % 10000, l)
 }
 
 fn draw_chat(p: &mut Painter, f: &HudFrame, w: f32, h: f32) {

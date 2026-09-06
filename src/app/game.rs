@@ -470,6 +470,7 @@ impl App {
                             .map(|p| p.render_pos)
                             .unwrap_or(pos);
                         self.hud.damage_from((from - my_pos).normalize_or_zero(), damage as f32 / 60.0);
+                        self.hud.splash_visor(damage as f32 / 55.0);
                         self.shake = (self.shake + damage as f32 / 120.0).min(1.0);
                     }
                 }
@@ -574,6 +575,9 @@ impl App {
                         self.viewmodel = super::world_view::ViewModel::default();
                         self.damage_flash = 0.0;
                         self.flash_blind = 0.0;
+                        // A new instance comes out of the vat with a clean
+                        // visor. The blood on the old one went with it.
+                        self.hud.clear_visor();
                         if let Some(bank) = self.audio.bank.clone() {
                             let c = bank.spawn.clone();
                             self.audio.play_ui(c, 0.5, 1.0);
