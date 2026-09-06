@@ -444,6 +444,14 @@ fn ironveil(b: &mut MapBuilder) {
     b.wall_x(hx + hw - 4.5, hz + hd, 4.5, 0.0, hh, Mat::Corrugated);
     b.wall_x(hx, hz + hd, hw, 6.6, hh - 6.6, Mat::Corrugated);
     b.ceiling(hx, hz, hw, hd, hh, Mat::RoofMetal);
+    // Six bay lamps on stems: a hangar's daylight comes in the open face
+    // only, and everything behind the mezzanine was unlit.
+    for i in 0..3 {
+        for j in 0..2 {
+            b.hanging_light(hx + 5.0 + i as f32 * 7.0, hz + 6.0 + j as f32 * 9.0,
+                            hh, 2.0, 1.8, 1.8);
+        }
+    }
     // Interior: a maintenance mezzanine reached from either end.
     b.catwalk(hx + 0.4, 4.6, hz + 1.0, hw - 0.8, 3.2, Mat::Grating, true, &[hx + 4.0, hx + hw - 4.0]);
     b.access_stair(hx + 4.0, hz + 4.2, 0.05, 4.6, false, false, Mat::MetalPlateDiamond);
@@ -463,6 +471,12 @@ fn ironveil(b: &mut MapBuilder) {
     b.wall_x(gx + gw - 4.5, gz, 4.5, 0.0, hh, Mat::Corrugated);
     b.wall_x(gx, gz, gw, 6.6, hh - 6.6, Mat::Corrugated);
     b.ceiling(gx, gz, gw, gd, hh, Mat::RoofMetal);
+    for i in 0..3 {
+        for j in 0..2 {
+            b.hanging_light(gx + 5.0 + i as f32 * 7.0, gz + 5.0 + j as f32 * 9.0,
+                            hh, 2.0, 1.8, 1.8);
+        }
+    }
     b.catwalk(gx + 0.4, 4.6, gz + gd - 4.2, gw - 0.8, 3.2, Mat::Grating, true, &[gx + 4.0, gx + gw - 4.0]);
     b.access_stair(gx + 4.0, gz + gd - 4.2, 0.05, 4.6, false, true, Mat::MetalPlateDiamond);
     b.access_stair(gx + gw - 4.0, gz + gd - 4.2, 0.05, 4.6, false, true, Mat::MetalPlateDiamond);
@@ -513,6 +527,9 @@ fn ironveil(b: &mut MapBuilder) {
     // into, and taking it is worth doing.
     b.room(-9.0, -10.0, 18.0, 20.0, 0.05, 6.4, DOOR_ALL, Mat::Corrugated, Mat::ConcreteFloor, false);
     b.ceiling(-9.0, -10.0, 18.0, 20.0, 6.4, Mat::RoofMetal);
+    for j in 0..3 {
+        b.ceiling_light(0.0, -6.0 + j as f32 * 6.0, 6.4, 3.0, 0.6);
+    }
     // A mezzanine over the north half, reached from inside and open to the
     // south door, which gives the hall a second storey worth contesting.
     b.catwalk(-8.4, 3.3, -9.2, 16.8, 7.0, Mat::Grating, true, &[-4.0, 3.0]);
@@ -853,6 +870,11 @@ fn belvoir(b: &mut MapBuilder) {
     b.wall_z(6.0, -34.0, 68.0, sy, 3.2, Mat::StoneWall);
     // Ceiling only between the stairwells, which are open shafts to the street.
     b.ceiling(-6.0, -25.6, 12.0, 51.4, sy + 3.2, Mat::StoneWall);
+    // Service lamps down the tunnel. A sewer lit only by the two open shafts
+    // was a black corridor between two pools of daylight.
+    for i in 0..6 {
+        b.ceiling_light(0.0, -22.0 + i as f32 * 9.0, sy + 3.2, 1.0, 0.4);
+    }
     // Side chamber under the square, so the tunnel is not a bare corridor.
     b.floor(6.0, -6.0, 10.0, 12.0, sy, Mat::Cobble);
     b.wall_x(6.0, -6.0, 10.0, sy, 3.2, Mat::StoneWall);
@@ -917,6 +939,9 @@ fn belvoir(b: &mut MapBuilder) {
         b.pillar(x, 0.0, -1.0, 0.9, 4.2, Mat::StoneWall);
     }
     b.ceiling(-12.0, -10.0, 24.0, 10.0, 4.2, Mat::RoofTile);
+    for i in 0..3 {
+        b.ceiling_light(-7.0 + i as f32 * 7.0, -5.0, 4.2, 2.4, 0.5);
+    }
     b.half_wall(-12.0, 0.0, -5.4, 9.0, true, Mat::StoneWall);
     b.half_wall(3.0, 0.0, -5.4, 9.0, true, Mat::StoneWall);
 
@@ -1050,6 +1075,12 @@ fn greenline(b: &mut MapBuilder) {
     b.wall_x(-4.0, -12.0, 8.0, DOOR_H + 0.4, 3.4 - DOOR_H - 0.4, Mat::ConcretePanel);
     // Two flights in opposite corners take you ground -> first floor -> roof.
     b.floor_with_hole(-9.0, -12.0, 18.0, 16.0, 3.4, Mat::ConcreteFloor, -8.7, -11.9, 3.2, 5.4);
+    // Strip lights on both floors: under a canopy this thick the relay's
+    // ground floor got no daylight at all through its two doorways.
+    for (lx, lz) in [(-4.0f32, -8.0f32), (4.0, -8.0), (-4.0, 0.0), (4.0, 0.0)] {
+        b.ceiling_light(lx, lz, 3.4, 2.2, 0.4);
+        b.ceiling_light(lx, lz, 6.4, 2.2, 0.4);
+    }
     b.access_stair(-7.2, -6.8, 0.0, 3.4, false, true, Mat::MetalPlateDiamond);
     b.wall_x_window(-9.0, -12.0, 18.0, 3.4, 3.0, 1.0, 2.3, Mat::ConcretePanel);
     b.wall_x_window(-9.0, 4.0, 18.0, 3.4, 3.0, 1.0, 2.3, Mat::ConcretePanel);
@@ -1154,12 +1185,14 @@ fn greenline(b: &mut MapBuilder) {
     // --- Generator hut on the north side: somewhere to fight indoors that is
     //     not the relay building.
     b.room(6.0, -34.0, 14.0, 12.0, 0.0, 3.2, DOOR_NX | DOOR_PZ, Mat::Corrugated, Mat::ConcreteFloor, true);
+    b.ceiling_light(13.0, -28.0, 3.2, 2.4, 0.5);
     b.wall_x_window(6.0, -34.0, 14.0, 0.0, 3.2, 1.1, 2.0, Mat::Corrugated);
     tank(b, 10.0, 0.0, -30.0, 1.6, 2.6, Mat::MetalRust);
     b.crates(16.0, 0.0, -25.0, 1.3, 2, Mat::WoodCrate);
 
     // --- Bunker at the south-west, a hard point with two mouths.
     b.room(-36.0, 24.0, 14.0, 12.0, 0.0, 3.0, DOOR_PX | DOOR_NZ, Mat::Bunker, Mat::ConcreteFloor, true);
+    b.ceiling_light(-29.0, 30.0, 3.0, 2.4, 0.5);
     b.wall_x_window(-36.0, 24.0, 14.0, 0.0, 3.0, 1.1, 1.9, Mat::Bunker);
     b.sandbags(-38.0, 0.0, 21.0, 18.0, 1.2);
     b.pickup(-29.0, 0.1, 30.0, PickupKind::Ammo);
@@ -1274,6 +1307,7 @@ fn whiteout(b: &mut MapBuilder) {
     }
     // Vehicle park: a shelter and two tracked vehicles under the drifts.
     b.room(-22.0, -34.0, 14.0, 10.0, 0.0, 4.0, DOOR_PZ | DOOR_PX, Mat::Corrugated, Mat::ConcreteFloor, true);
+    b.ceiling_light(-15.0, -29.0, 4.0, 2.6, 0.5);
     truck(b, -16.0, 0.0, -28.0, true, Mat::CamoWinter);
     truck(b, 22.0, 0.0, -26.0, false, Mat::CamoWinter);
     for i in 0..4 { b.barrel(24.0 + i as f32 * 1.0, 0.0, 14.0, Mat::BarrelRust); }
@@ -1300,6 +1334,8 @@ fn whiteout(b: &mut MapBuilder) {
         // The ramp lands on the -X doorway; the roof stair climbs the +X face.
         b.ramp(hx - 4.0, 0.0, hz + 5.0, 4.0, 0.8, 4.0, RampAxis::PosX, Mat::MetalPlateDiamond);
         b.access_stair(hz + 3.0, hx + 18.0, 0.8, 4.0, true, false, Mat::MetalPlateDiamond);
+        b.ceiling_light(hx + 6.0, hz + 6.5, 4.0, 2.4, 0.5);
+        b.ceiling_light(hx + 13.0, hz + 6.5, 4.0, 2.4, 0.5);
         b.decor(hx + 1.0, 0.8, hz + 1.0, 3.0, 1.0, 1.4, Mat::ControlPanel);
         b.decor(hx + 1.0, 1.8, hz + 1.2, 2.6, 1.0, 0.2, Mat::Screen);
         b.crates(hx + 14.0, 0.8, hz + 9.0, 1.2, 2, Mat::WoodCrate);
@@ -1313,6 +1349,11 @@ fn whiteout(b: &mut MapBuilder) {
     // Ceiling in segments, leaving the three shafts open to the surface.
     for (a, bx) in [(-30.0f32, -30.4f32), (-24.5, -0.4), (5.5, 14.5), (20.4, 24.0)] {
         if bx > a + 0.05 { b.ceiling(a, -3.0, bx - a, 7.0, ty + 3.0, Mat::Bunker); }
+    }
+    // Lamps between the shafts. Three open shafts over fifty-four metres left
+    // most of the tunnel black, which is not the same as dark.
+    for i in 0..7 {
+        b.ceiling_light(-24.0 + i as f32 * 8.0, 0.5, ty + 3.0, 1.0, 0.4);
     }
     // Blast doors part way along, offset from each other. Fifty-four metres of
     // straight tunnel is a better sightline than anything on the surface,
@@ -1891,6 +1932,9 @@ fn foundry(b: &mut MapBuilder) {
     b.wall_z(-10.0, -31.0, 8.0, l1, 3.6, Mat::ConcretePanel);
     b.wall_z(10.0, -31.0, 8.0, l1, 3.6, Mat::ConcretePanel);
     b.ceiling(-10.0, -31.0, 20.0, 8.0, l1 + 3.6, Mat::ConcretePanel);
+    for i in 0..3 {
+        b.ceiling_light(-6.0 + i as f32 * 6.0, -27.0, l1 + 3.6, 2.6, 0.5);
+    }
     for i in 0..4 {
         b.decor(-8.0 + i as f32 * 4.5, l1, -24.4, 3.0, 1.1, 1.2, Mat::ControlPanel);
         b.decor(-8.0 + i as f32 * 4.5, l1 + 1.1, -24.2, 2.6, 1.1, 0.2, Mat::Screen);
@@ -2381,6 +2425,9 @@ fn junction(b: &mut MapBuilder) {
     b.wall_x(-32.0, 14.0, 10.0, 0.0, 8.0, Mat::Corrugated);
     b.wall_z(-22.0, 14.0, 16.0, 0.0, 8.0, Mat::Corrugated);
     b.ceiling(-44.0, 14.0, 22.0, 16.0, 8.0, Mat::RoofMetal);
+    for i in 0..3 {
+        b.hanging_light(-38.0 + i as f32 * 7.0, 22.0, 8.0, 1.8, 1.8, 1.8);
+    }
     b.catwalk(-43.0, 4.4, 15.0, 20.0, 2.6, Mat::Grating, true, &[-33.0]);
     b.access_stair(-33.0, 17.6, 0.05, 4.4, false, false, Mat::MetalPlateDiamond);
     b.crates(-38.0, 0.05, 24.0, 1.4, 2, Mat::WoodCrate);
