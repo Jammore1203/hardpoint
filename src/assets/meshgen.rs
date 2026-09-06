@@ -686,8 +686,11 @@ pub enum Part {
     Hips = 0,
     Torso,
     Vest,
+    Chest,
+    Neck,
     Head,
     Helmet,
+    HelmetBrim,
     Pack,
     ShoulderL,
     ShoulderR,
@@ -698,51 +701,63 @@ pub enum Part {
     ArmLowerR,
     GloveR,
     LegUpperL,
+    KneeL,
     LegLowerL,
     BootL,
     LegUpperR,
+    KneeR,
     LegLowerR,
     BootR,
     Holster,
+    PouchL,
+    PouchR,
 }
 
-pub const PART_COUNT: usize = 21;
+pub const PART_COUNT: usize = 28;
 
 pub const ALL_PARTS: [Part; PART_COUNT] = [
-    Part::Hips, Part::Torso, Part::Vest, Part::Head, Part::Helmet, Part::Pack,
+    Part::Hips, Part::Torso, Part::Vest, Part::Chest, Part::Neck,
+    Part::Head, Part::Helmet, Part::HelmetBrim, Part::Pack,
     Part::ShoulderL, Part::ShoulderR,
     Part::ArmUpperL, Part::ArmLowerL, Part::GloveL,
     Part::ArmUpperR, Part::ArmLowerR, Part::GloveR,
-    Part::LegUpperL, Part::LegLowerL, Part::BootL,
-    Part::LegUpperR, Part::LegLowerR, Part::BootR,
-    Part::Holster,
+    Part::LegUpperL, Part::KneeL, Part::LegLowerL, Part::BootL,
+    Part::LegUpperR, Part::KneeR, Part::LegLowerR, Part::BootR,
+    Part::Holster, Part::PouchL, Part::PouchR,
 ];
 
 /// Size of the parts that are boxes rather than bones, in metres at the
 /// standing pose. Limbs are absent: they are sized from their two endpoints,
 /// which is the only way a limb can be guaranteed to reach what it is holding.
 pub const PART_SIZE: [[f32; 3]; PART_COUNT] = [
-    [0.38, 0.22, 0.25], // hips
-    [0.43, 0.50, 0.27], // torso
+    [0.38, 0.22, 0.25],  // hips
+    [0.43, 0.50, 0.27],  // torso
     [0.455, 0.30, 0.30], // vest
-    [0.185, 0.225, 0.20], // head
-    [0.225, 0.135, 0.235], // helmet
-    [0.30, 0.29, 0.15], // pack
-    [0.15, 0.13, 0.24], // shoulder L
-    [0.15, 0.13, 0.24], // shoulder R
-    [0.13, 0.30, 0.14], // upper arm L
-    [0.11, 0.28, 0.12], // lower arm L
-    [0.10, 0.11, 0.13], // glove L
-    [0.13, 0.30, 0.14], // upper arm R
-    [0.11, 0.28, 0.12], // lower arm R
-    [0.10, 0.11, 0.13], // glove R
-    [0.17, 0.42, 0.19], // upper leg L
-    [0.14, 0.40, 0.16], // lower leg L
-    [0.15, 0.11, 0.26], // boot L
-    [0.17, 0.42, 0.19], // upper leg R
-    [0.14, 0.40, 0.16], // lower leg R
-    [0.15, 0.11, 0.26], // boot R
-    [0.11, 0.20, 0.09], // holster
+    [0.34, 0.13, 0.31],  // chest rig
+    [0.13, 0.09, 0.13],  // neck
+    [0.185, 0.225, 0.20],// head
+    [0.225, 0.135, 0.235],// helmet
+    [0.235, 0.045, 0.095],// helmet brim
+    [0.30, 0.29, 0.15],  // pack
+    [0.15, 0.13, 0.24],  // shoulder L
+    [0.15, 0.13, 0.24],  // shoulder R
+    [0.13, 0.30, 0.14],  // upper arm L
+    [0.11, 0.28, 0.12],  // lower arm L
+    [0.10, 0.11, 0.13],  // glove L
+    [0.13, 0.30, 0.14],  // upper arm R
+    [0.11, 0.28, 0.12],  // lower arm R
+    [0.10, 0.11, 0.13],  // glove R
+    [0.17, 0.42, 0.19],  // upper leg L
+    [0.15, 0.10, 0.17],  // knee pad L
+    [0.14, 0.40, 0.16],  // lower leg L
+    [0.15, 0.11, 0.26],  // boot L
+    [0.17, 0.42, 0.19],  // upper leg R
+    [0.15, 0.10, 0.17],  // knee pad R
+    [0.14, 0.40, 0.16],  // lower leg R
+    [0.15, 0.11, 0.26],  // boot R
+    [0.11, 0.20, 0.09],  // holster
+    [0.10, 0.11, 0.08],  // pouch L
+    [0.10, 0.11, 0.08],  // pouch R
 ];
 
 /// What a part is made of and how it should be tinted. Kit stays neutral so
@@ -759,9 +774,11 @@ pub enum PartLook {
 
 pub fn part_look(part: Part) -> PartLook {
     match part {
-        Part::Head => PartLook::Skin,
-        Part::Helmet | Part::ShoulderL | Part::ShoulderR => PartLook::Hard,
-        Part::Vest | Part::Pack | Part::Holster => PartLook::Webbing,
+        Part::Head | Part::Neck => PartLook::Skin,
+        Part::Helmet | Part::HelmetBrim | Part::ShoulderL | Part::ShoulderR
+        | Part::KneeL | Part::KneeR => PartLook::Hard,
+        Part::Vest | Part::Chest | Part::Pack | Part::Holster
+        | Part::PouchL | Part::PouchR => PartLook::Webbing,
         Part::GloveL | Part::GloveR | Part::BootL | Part::BootR => PartLook::Boots,
         _ => PartLook::Fatigues,
     }
@@ -938,6 +955,22 @@ pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
     out[Part::Pack as usize] = torso_m
         * Mat4::from_translation(Vec3::new(0.0, 0.02 * s, 0.20 * s))
         * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Pack as usize]) * s);
+    // A chest rig standing proud of the vest, and two magazine pouches on it.
+    out[Part::Chest as usize] = torso_m
+        * Mat4::from_translation(Vec3::new(0.0, 0.02 * s, -0.145 * s))
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Chest as usize]) * s);
+    for (side, part) in [(-1.0f32, Part::PouchL), (1.0, Part::PouchR)] {
+        out[part as usize] = torso_m
+            * Mat4::from_translation(Vec3::new(side * 0.115 * s, -0.045 * s, -0.175 * s))
+            * Mat4::from_scale(Vec3::from(PART_SIZE[part as usize]) * s);
+    }
+
+    // A neck, so the head is joined to the body rather than floating above
+    // the collar when the aim swings.
+    out[Part::Neck as usize] = root
+        * Mat4::from_translation(Vec3::new(0.0, (neck_y - 0.055) * s, 0.0))
+        * Mat4::from_rotation_y(input.yaw)
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Neck as usize]) * s);
 
     // Head: the remainder of the aim, so looking up raises the face.
     let head_m = root
@@ -949,6 +982,12 @@ pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
     out[Part::Helmet as usize] = head_m
         * Mat4::from_translation(Vec3::new(0.0, 0.155 * s, 0.008 * s))
         * Mat4::from_scale(Vec3::from(PART_SIZE[Part::Helmet as usize]) * s);
+    // A brim over the eyes: the one detail that makes a helmet read as facing
+    // somewhere, which matters more than any other at the range you see it.
+    out[Part::HelmetBrim as usize] = head_m
+        * Mat4::from_translation(Vec3::new(0.0, 0.118 * s, -0.130 * s))
+        * Mat4::from_rotation_x(-0.18)
+        * Mat4::from_scale(Vec3::from(PART_SIZE[Part::HelmetBrim as usize]) * s);
 
     for (side, part) in [(-1.0f32, Part::ShoulderL), (1.0, Part::ShoulderR)] {
         out[part as usize] = torso_m
@@ -972,9 +1011,9 @@ pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
 
     let thigh = 0.44 * s;
     let shin = 0.44 * s;
-    for (side, swing, upper, lower, boot) in [
-        (-1.0f32, stride, Part::LegUpperL, Part::LegLowerL, Part::BootL),
-        (1.0, -stride, Part::LegUpperR, Part::LegLowerR, Part::BootR),
+    for (side, swing, upper, lower, boot, knee_pad) in [
+        (-1.0f32, stride, Part::LegUpperL, Part::LegLowerL, Part::BootL, Part::KneeL),
+        (1.0, -stride, Part::LegUpperR, Part::LegLowerR, Part::BootR, Part::KneeR),
     ] {
         let hip = at(side * 0.11, hip_y - 0.06, 0.0);
         // Foot placement drives the leg, so feet land where they look like
@@ -992,6 +1031,11 @@ pub fn pose_character(input: &PoseInput, origin: Vec3) -> Pose {
         // The boot is level with the ground, not with the shin.
         let toe = (ankle - knee).normalize_or_zero() * 0.0;
         let _ = toe;
+        // Knee pad on the joint, aligned with the shin so it follows the leg.
+        let shin_dir = (ankle - knee).normalize_or_zero();
+        out[knee_pad as usize] = bone(
+            knee - shin_dir * (0.02 * s), knee + shin_dir * (0.10 * s),
+            PART_SIZE[knee_pad as usize][0] * s, PART_SIZE[knee_pad as usize][2] * s, fwd);
         out[boot as usize] = Mat4::from_translation(ankle - up * (0.04 * s) + fwd * (0.05 * s))
             * Mat4::from_rotation_y(input.yaw)
             * Mat4::from_scale(Vec3::from(PART_SIZE[boot as usize]) * s);
