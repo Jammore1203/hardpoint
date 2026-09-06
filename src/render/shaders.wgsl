@@ -25,6 +25,8 @@ struct Globals {
     retro: vec4<f32>,          // snap grid, affine, scanline, vignette
     grade: vec4<f32>,          // detail strength, detail layer, exposure, saturation
     sun: vec4<f32>,            // direction toward the sun (xyz), cloud cover (w)
+    warm: vec4<f32>,           // per-map warm tint (rgb), fog height falloff (w)
+    cool: vec4<f32>,           // per-map cool tint (rgb), fog floor height (w)
 };
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -71,8 +73,20 @@ fn fog_amount(world_pos: vec3<f32>) -> f32 {
     let d = length(world_pos - G.camera_pos.xyz);
     let start = G.fog_color.w;
     let end = G.fog_params.x;
-    let t = clamp((d - start) / max(end - start, 0.001), 0.0, 1.0);
-    return t * t;
+    var t = clamp((d - start) / max(end - start, 0.001), 0.0, 1.0);
+    t = t * t;
+
+    // Height fog: haze pools in the low ground and thins with altitude, which
+    // is what separates a distant rooftop from the street it stands over. The
+    // falloff is per map, so an enclosed foundry can switch it off entirely
+    // while a coastal fort sits in it.
+    let falloff = G.warm.w;
+    if (falloff > 0.0001) {
+        let floor_y = G.cool.w;
+        let h = max(world_pos.y - floor_y, 0.0);
+        t = t * clamp(exp(-h * falloff), 0.0, 1.0);
+    }
+    return t;
 }
 
 // The sun's own colour is not in the uniform block; the sky's top colour is a
@@ -83,10 +97,12 @@ fn G_sun_color_or_white() -> vec3<f32> {
 
 fn grade(c: vec3<f32>) -> vec3<f32> {
     // A warm/cool split-tone plus a gentle contrast curve: the whole colour
-    // treatment of the era in three instructions.
+    // treatment of the era in three instructions. The two tints come from the
+    // map, so a desert airfield and an arctic radar site do not resolve to the
+    // same picture once the fog and the sky have had their say.
     let lum = dot(c, vec3<f32>(0.299, 0.587, 0.114));
-    let warm = vec3<f32>(1.06, 1.0, 0.92);
-    let cool = vec3<f32>(0.94, 0.99, 1.08);
+    let warm = G.warm.rgb;
+    let cool = G.cool.rgb;
     let tone = mix(cool, warm, clamp(lum * 1.4, 0.0, 1.0));
     var o = c * tone * G.grade.z;
     o = mix(vec3<f32>(lum), o, G.grade.w);

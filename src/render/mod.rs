@@ -43,6 +43,8 @@ struct Globals {
     retro: [f32; 4],
     grade: [f32; 4],
     sun: [f32; 4],
+    warm: [f32; 4],
+    cool: [f32; 4],
 }
 
 /// One billboarded or ground-aligned quad.
@@ -726,6 +728,8 @@ impl Renderer {
                 if self.settings.post_processing { self.settings.vignette } else { 0.0 },
             ],
             sun: [-env.sun_dir.x, -env.sun_dir.y, -env.sun_dir.z, env.cloud_cover],
+            warm: [env.grade_warm[0], env.grade_warm[1], env.grade_warm[2], env.fog_height_falloff],
+            cool: [env.grade_cool[0], env.grade_cool[1], env.grade_cool[2], env.fog_floor],
             grade: [
                 self.settings.detail,
                 crate::assets::texgen::DETAIL_LAYER as f32,

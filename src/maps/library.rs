@@ -56,6 +56,8 @@ fn env_desert() -> Env {
         track: MusicTrack::Patrol,
         weather: Weather::Dust,
         cloud_cover: 0.12,
+        fog_height_falloff: 0.020,
+        fog_floor: 0.0,
     }
 }
 
@@ -76,6 +78,8 @@ fn env_industrial() -> Env {
         track: MusicTrack::Assault,
         weather: Weather::None,
         cloud_cover: 0.62,
+        fog_height_falloff: 0.000,
+        fog_floor: 0.0,
     }
 }
 
@@ -96,6 +100,8 @@ fn env_village() -> Env {
         track: MusicTrack::Tension,
         weather: Weather::None,
         cloud_cover: 0.40,
+        fog_height_falloff: 0.030,
+        fog_floor: 0.0,
     }
 }
 
@@ -116,6 +122,8 @@ fn env_jungle() -> Env {
         track: MusicTrack::Tension,
         weather: Weather::Rain,
         cloud_cover: 0.55,
+        fog_height_falloff: 0.045,
+        fog_floor: -3.0,
     }
 }
 
@@ -136,6 +144,8 @@ fn env_arctic() -> Env {
         track: MusicTrack::Patrol,
         weather: Weather::Snow,
         cloud_cover: 0.80,
+        fog_height_falloff: 0.038,
+        fog_floor: 0.0,
     }
 }
 
@@ -156,6 +166,8 @@ fn env_urban() -> Env {
         track: MusicTrack::Assault,
         weather: Weather::None,
         cloud_cover: 0.48,
+        fog_height_falloff: 0.026,
+        fog_floor: -4.5,
     }
 }
 
@@ -176,6 +188,8 @@ fn env_shipyard() -> Env {
         track: MusicTrack::Patrol,
         weather: Weather::None,
         cloud_cover: 0.52,
+        fog_height_falloff: 0.034,
+        fog_floor: -7.0,
     }
 }
 
@@ -196,6 +210,8 @@ fn env_foundry() -> Env {
         track: MusicTrack::Assault,
         weather: Weather::Ash,
         cloud_cover: 0.70,
+        fog_height_falloff: 0.000,
+        fog_floor: 0.0,
     }
 }
 
@@ -216,6 +232,8 @@ fn env_coastal() -> Env {
         track: MusicTrack::Tension,
         weather: Weather::None,
         cloud_cover: 0.35,
+        fog_height_falloff: 0.055,
+        fog_floor: -2.0,
     }
 }
 
@@ -236,6 +254,8 @@ fn env_bunker() -> Env {
         track: MusicTrack::Tension,
         weather: Weather::None,
         cloud_cover: 0.30,
+        fog_height_falloff: 0.000,
+        fog_floor: -8.0,
     }
 }
 
@@ -256,6 +276,8 @@ fn env_railyard() -> Env {
         track: MusicTrack::Patrol,
         weather: Weather::None,
         cloud_cover: 0.58,
+        fog_height_falloff: 0.030,
+        fog_floor: 0.0,
     }
 }
 
@@ -276,6 +298,8 @@ fn env_overpass() -> Env {
         track: MusicTrack::Assault,
         weather: Weather::Dust,
         cloud_cover: 0.66,
+        fog_height_falloff: 0.028,
+        fog_floor: 0.0,
     }
 }
 
