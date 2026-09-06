@@ -451,32 +451,39 @@ fn gen_corrugated(p: &mut Painter, tint: [u8; 3], ribs: f32, seed: u32) {
 fn gen_granular(p: &mut Painter, tint: [u8; 3], cells: f32, contrast: f32, seed: u32) {
     let tx = p.texel;
     let stony = smoothstep(0.14, 0.34, contrast);
-    // The coarse layer only exists for genuinely stony ground, and even then
-    // at a period chosen not to echo the fine layer.
     let big = (cells * 0.46).max(9.0);
     let cells = cells.min(1.0 / (tx * 3.0));
-    p.shade(tint, |u, v, _, _| {
+    // Relief scales with stoniness: sand is nearly flat, gravel is a bed of
+    // separate stones. Doing this by lighting a height field rather than by
+    // painting light and dark is what stops gravel reading as static.
+    let relief = 0.10 + 0.40 * stony;
+    p.shade_relief(tint, relief, |u, v| {
         let (f1, f2) = worley2(u * cells, v * cells, cells as i32, seed);
         let drift = fbm(u * 3.0, v * 3.0, 3, 4, seed ^ 0x77);
         let mid = fbm(u * 11.0, v * 11.0, 11, 3, seed ^ 0x21);
         let fine = vnoise(u * 128.0, v * 128.0, 128, seed ^ 0x4D);
 
-        // Each cell lit like a small dome, with a shadow in the gap between.
-        let dome = (1.0 - f1) * contrast;
-        let gap = (1.0 - smoothstep(tx * 3.0, 0.10, f2 - f1)) * contrast * 0.55 * stony;
+        // Each cell is a stone: domed in the middle, with a gap around it.
+        let dome = (1.0 - f1).powf(0.7);
+        let gap = 1.0 - smoothstep(tx * 3.0, 0.10, f2 - f1);
 
-        let mut lum = 0.72 + dome + (drift - 0.5) * 0.20 + (mid - 0.5) * 0.13
-            + (fine - 0.5) * 0.09 - gap;
+        let mut height = dome * (0.5 + 0.5 * stony) - gap * 0.55 * stony
+            + (drift - 0.5) * 0.30 + (mid - 0.5) * 0.20 + (fine - 0.5) * 0.16;
 
         if stony > 0.01 {
-            // Faint. A coarse cell layer at readable strength is a honeycomb
-            // the eye locks onto, and it repeats every tile.
             let (b1, b2) = worley2(u * big, v * big, big as i32, seed ^ 0x9E1);
-            let boulder = ((1.0 - b1) - 0.5) * contrast * 0.20 * stony;
-            let seam = (1.0 - smoothstep(tx * 3.0, 0.10, b2 - b1)) * contrast * 0.16 * stony;
-            lum += boulder - seam;
+            let boulder = ((1.0 - b1) - 0.5) * 0.30 * stony;
+            let seam = (1.0 - smoothstep(tx * 3.0, 0.10, b2 - b1)) * 0.22 * stony;
+            height += boulder - seam;
         }
-        (lum, 1.0)
+
+        // The albedo stays nearly flat: the lighting is doing the work now, so
+        // painting contrast in as well would double it and give back the noise
+        // this is meant to remove.
+        let albedo = 0.96 + (drift - 0.5) * 0.14 + (mid - 0.5) * 0.09
+            + (fine - 0.5) * 0.05
+            + ((1.0 - f1) - 0.5) * contrast * 0.30;
+        (albedo, height)
     });
     // Ground tiles across enormous areas, so it gets the least stain of
     // anything: a low-frequency blotch here is a visible repeat out there.
@@ -516,16 +523,18 @@ fn gen_foliage(p: &mut Painter, tint: [u8; 3], cutout: bool, seed: u32) {
 fn gen_woven(p: &mut Painter, tint: [u8; 3], threads: f32, lumpy: f32, seed: u32) {
     let tx = p.texel;
     let threads = threads.min(1.0 / (tx * 8.0));
-    p.shade(tint, |u, v, _, _| {
+    p.shade_relief(tint, 0.30, |u, v| {
         let a = (u * threads * std::f32::consts::TAU).sin();
         let b = (v * threads * std::f32::consts::TAU).sin();
-        // Over-under weave rather than a product, so the warp and weft cross.
+        // Over-under rather than a product, so the warp and weft cross and the
+        // relief has a thread passing over a thread rather than a grid of pits.
         let over = if a > b { a } else { b };
         let weave = over * 0.5 + 0.5;
         let lump = fbm(u * 5.0, v * 5.0, 5, 4, seed);
         let fray = vnoise(u * 64.0, v * 64.0, 64, seed ^ 0x8A);
-        let lum = 0.70 + weave * 0.20 + (lump - 0.5) * lumpy + (fray - 0.5) * 0.06;
-        (lum, 1.0)
+        let height = weave * 0.55 + (lump - 0.5) * lumpy * 2.4 + (fray - 0.5) * 0.20;
+        let albedo = 0.92 + (lump - 0.5) * lumpy * 0.5 + (fray - 0.5) * 0.08;
+        (albedo, height)
     });
     p.grime(0.4, seed);
 }
