@@ -193,10 +193,55 @@ fn apply(app: &mut App, intent: Intent) {
 
 // ================================================================== screens
 
-fn splash(ui: &mut Ui) {
+/// The ground every full-screen menu sits on.
+///
+/// A flat fill of one near-black is honest but empty, and the era's menus
+/// were never empty: they sat on a plate with a survey grid ruled across it
+/// and the corners marked, which is what makes a screen read as an
+/// instrument rather than as a blank document. All of it is faint enough to
+/// disappear behind anything drawn on top.
+fn backdrop(ui: &mut Ui) {
     let w = ui.p.design_width();
     let h = ui.p.design_height();
     ui.p.rect(0.0, 0.0, w, h, theme::BG);
+
+    // A slow wash, brightest at the top: the flat fill made the whole screen
+    // one value, and one value at this size reads as a hole.
+    const BANDS: usize = 22;
+    for i in 0..BANDS {
+        let t = i as f32 / BANDS as f32;
+        let a = (1.0 - t) * (1.0 - t) * 0.075;
+        ui.p.rect(0.0, h * t, w, h / BANDS as f32 + 1.0, [0.24, 0.30, 0.22, a]);
+    }
+
+    // Survey grid.
+    let step = 90.0f32;
+    let faint = theme::with_alpha(theme::BORDER_DIM, 0.30);
+    let mut x = step;
+    while x < w { ui.p.rect(x, 0.0, 1.0, h, faint); x += step; }
+    let mut y = step;
+    while y < h { ui.p.rect(0.0, y, w, 1.0, faint); y += step; }
+
+    // Corner ticks, in the accent, so the plate has registration marks.
+    let tick = theme::with_alpha(theme::ACCENT, 0.30);
+    let (l, t) = (34.0f32, 34.0f32);
+    for (cx, cy, sx, sy) in [
+        (l, t, 1.0f32, 1.0f32),
+        (w - l, t, -1.0, 1.0),
+        (l, h - t, 1.0, -1.0),
+        (w - l, h - t, -1.0, -1.0),
+    ] {
+        let x0 = if sx > 0.0 { cx } else { cx - 46.0 };
+        let y0 = if sy > 0.0 { cy } else { cy - 46.0 };
+        ui.p.rect(x0, cy, 46.0, 1.0, tick);
+        ui.p.rect(cx, y0, 1.0, 46.0, tick);
+    }
+}
+
+fn splash(ui: &mut Ui) {
+    let w = ui.p.design_width();
+    let h = ui.p.design_height();
+    backdrop(ui);
     ui.p.noise_band(0.0, h * 0.53, w, 26.0, 7, theme::ACCENT);
     ui.p.text_aligned(w * 0.5, h * 0.40, theme::H1, theme::TEXT_BRIGHT, "HARDPOINT", Align::Center);
     ui.p.text_aligned(w * 0.5, h * 0.40 + theme::H1 + 8.0, theme::H3, theme::ACCENT, "OPERATION IRONVEIL", Align::Center);
@@ -205,8 +250,7 @@ fn splash(ui: &mut Ui) {
 
 fn menu_frame(ui: &mut Ui, title: &str, subtitle: &str) -> (f32, f32, f32) {
     let w = ui.p.design_width();
-    let h = ui.p.design_height();
-    ui.p.rect(0.0, 0.0, w, h, theme::BG);
+    backdrop(ui);
     // A wide dark band behind the title, with a few noise ticks for texture.
     ui.p.rect(0.0, 60.0, w, 96.0, theme::PANEL_DEEP);
     ui.p.rect(0.0, 60.0, w, 2.0, theme::BORDER_DIM);
@@ -222,7 +266,7 @@ fn menu_frame(ui: &mut Ui, title: &str, subtitle: &str) -> (f32, f32, f32) {
 fn main_menu(ui: &mut Ui, settings: &crate::settings::Settings, prog: &crate::progression::Progression, out: &mut Vec<Intent>) {
     let w = ui.p.design_width();
     let h = ui.p.design_height();
-    ui.p.rect(0.0, 0.0, w, h, theme::BG);
+    backdrop(ui);
 
     // Title block.
     let tx = w * 0.5 - 460.0;
@@ -458,7 +502,7 @@ fn connecting(ui: &mut Ui, client: Option<&crate::net::client::Client>, out: &mu
 fn loading(ui: &mut Ui, message: &str) {
     let w = ui.p.design_width();
     let h = ui.p.design_height();
-    ui.p.rect(0.0, 0.0, w, h, theme::BG);
+    backdrop(ui);
     ui.p.text_aligned(w * 0.5, h * 0.46, theme::H2, theme::TEXT_BRIGHT, "LOADING", Align::Center);
     ui.p.text_aligned(w * 0.5, h * 0.46 + theme::H2 + 12.0, theme::BODY, theme::TEXT_DIM, message, Align::Center);
 }
