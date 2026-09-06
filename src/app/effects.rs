@@ -533,10 +533,16 @@ impl Effects {
         self.weather.clear();
         let count = match kind {
             Weather::None => 0,
-            Weather::Snow => (420.0 * self.density) as usize,
-            Weather::Rain => (520.0 * self.density) as usize,
-            Weather::Ash => (280.0 * self.density) as usize,
-            Weather::Dust => (200.0 * self.density) as usize,
+            // These were sparse enough to be invisible: four hundred flakes
+            // spread through a fifty-metre cube is one flake per ninety cubic
+            // metres, and at four and a half centimetres across not one of
+            // them registered. Weather is cheap -- a thousand sprites against
+            // the couple of hundred a firefight already draws -- and a map
+            // billed as a blizzard should look like one.
+            Weather::Snow => (1100.0 * self.density) as usize,
+            Weather::Rain => (900.0 * self.density) as usize,
+            Weather::Ash => (520.0 * self.density) as usize,
+            Weather::Dust => (380.0 * self.density) as usize,
         };
         for _ in 0..count {
             let p = self.new_weather_particle(centre);
@@ -544,8 +550,15 @@ impl Effects {
         }
     }
 
+    /// Half-width of the box weather is kept in around the listener.
+    ///
+    /// Tighter than it was. Weather reads by being close enough to have size
+    /// on screen; spread over fifty metres the same number of flakes are all
+    /// too far away to see, and the ones that are near enough are one pixel.
+    const WEATHER_SPREAD: f32 = 17.0;
+
     fn new_weather_particle(&mut self, centre: Vec3) -> Particle {
-        let spread = 26.0;
+        let spread = Self::WEATHER_SPREAD;
         let pos = centre + Vec3::new(
             self.rng.range(-spread, spread),
             self.rng.range(2.0, 16.0),
@@ -554,27 +567,28 @@ impl Effects {
         match self.weather_kind {
             Weather::Snow => Particle {
                 pos,
-                vel: Vec3::new(self.rng.range(-0.5, 0.5), -self.rng.range(0.8, 1.8), self.rng.range(-0.5, 0.5)),
+                // Driven, not drifting: a blizzard blows sideways.
+                vel: Vec3::new(self.rng.range(1.4, 3.2), -self.rng.range(1.2, 2.6), self.rng.range(-0.9, 0.9)),
                 life: 0.0, max_life: 30.0,
-                size_start: 0.045, size_end: 0.045,
-                color_start: [1.0, 1.0, 1.0, 0.75], color_end: [1.0, 1.0, 1.0, 0.75],
+                size_start: 0.090, size_end: 0.090,
+                color_start: [1.0, 1.0, 1.0, 0.92], color_end: [1.0, 1.0, 1.0, 0.92],
                 rot: 0.0, spin: 0.5, gravity: 0.0, drag: 0.0,
                 sprite: Sprite::Snowflake, ground: false, collides: false,
             },
             Weather::Rain => Particle {
                 pos,
-                vel: Vec3::new(0.6, -14.0, 0.3),
+                vel: Vec3::new(1.4, -14.0, 0.3),
                 life: 0.0, max_life: 30.0,
-                size_start: 0.10, size_end: 0.10,
+                size_start: 0.16, size_end: 0.16,
                 color_start: [0.72, 0.80, 0.88, 0.35], color_end: [0.72, 0.80, 0.88, 0.35],
                 rot: 0.0, spin: 0.0, gravity: 0.0, drag: 0.0,
                 sprite: Sprite::Raindrop, ground: false, collides: false,
             },
             Weather::Ash => Particle {
                 pos,
-                vel: Vec3::new(self.rng.range(-0.3, 0.3), -self.rng.range(0.3, 0.8), self.rng.range(-0.3, 0.3)),
+                vel: Vec3::new(self.rng.range(-0.5, 0.5), -self.rng.range(0.3, 0.8), self.rng.range(-0.5, 0.5)),
                 life: 0.0, max_life: 30.0,
-                size_start: 0.05, size_end: 0.05,
+                size_start: 0.075, size_end: 0.075,
                 color_start: [0.55, 0.52, 0.48, 0.55], color_end: [0.55, 0.52, 0.48, 0.55],
                 rot: 0.0, spin: 0.8, gravity: 0.0, drag: 0.0,
                 sprite: Sprite::Dust, ground: false, collides: false,
@@ -648,7 +662,7 @@ impl Effects {
         // Weather follows the listener and wraps around them, so a fixed
         // number of particles covers an unbounded map.
         if self.weather_kind != Weather::None {
-            let spread = 26.0;
+            let spread = Self::WEATHER_SPREAD;
             for p in self.weather.iter_mut() {
                 p.pos += p.vel * dt;
                 p.rot += p.spin * dt;
