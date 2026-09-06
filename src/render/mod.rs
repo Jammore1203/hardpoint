@@ -720,7 +720,7 @@ impl Renderer {
                 1.0 / self.gpu.config.width as f32,
                 1.0 / self.gpu.config.height as f32,
             ],
-            time: [time, 0.0, flash, damage],
+            time: [time, crate::assets::materials::Mat::WaterSurface.layer() as f32, flash, damage],
             retro: [
                 self.settings.vertex_snap,
                 self.settings.affine_texturing,

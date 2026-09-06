@@ -265,7 +265,21 @@ fn detail_modulation(uv: vec2<f32>, world_pos: vec3<f32>) -> f32 {
 }
 
 fn world_shade(uv_a: vec2<f32>, uv_c: vec2<f32>, color: vec4<f32>, layer: u32, world_pos: vec3<f32>) -> vec4<f32> {
-    let uv = mix(uv_c, uv_a, G.retro.y);
+    var uv = mix(uv_c, uv_a, G.retro.y);
+    // Water drifts. Two layers at different speeds and directions, summed by
+    // sampling twice, which is the cheapest thing that stops a lake looking
+    // like a photograph of one. `time.y` carries the water layer index; a
+    // negative value means this map has none.
+    let water_layer = G.time.y;
+    if (water_layer >= 0.0 && layer == u32(water_layer)) {
+        let t = G.time.x;
+        let a = textureSample(world_tex, world_smp, uv + vec2<f32>(t * 0.014, t * 0.009), i32(layer));
+        let b = textureSample(world_tex, world_smp, uv * 0.73 + vec2<f32>(t * -0.010, t * 0.017), i32(layer));
+        var wc = (a.rgb * 0.6 + b.rgb * 0.5) * color.rgb * detail_modulation(uv, world_pos);
+        let wf = fog_amount(world_pos);
+        wc = mix(wc, G.fog_color.rgb, wf);
+        return vec4<f32>(grade(wc), 1.0);
+    }
     var tex = textureSample(world_tex, world_smp, uv, i32(layer));
     var c = tex.rgb * color.rgb * detail_modulation(uv, world_pos);
     let f = fog_amount(world_pos);

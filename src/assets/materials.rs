@@ -191,6 +191,10 @@ impl Mat {
     /// Whether the material should render with alpha testing (foliage, mesh
     /// fences, gratings). Kept to a handful of materials so the opaque pass
     /// stays the fast path.
+    /// Surfaces whose texture drifts, so they are not frozen mid-ripple.
+    /// Only water: ice is meant to be still.
+    pub fn is_liquid(self) -> bool { matches!(self, Mat::WaterSurface) }
+
     pub fn is_cutout(self) -> bool {
         matches!(self, Mat::Foliage | Mat::Mesh | Mat::Grating)
     }
