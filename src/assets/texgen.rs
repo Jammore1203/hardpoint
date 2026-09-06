@@ -1089,7 +1089,10 @@ pub enum Sprite {
 
 pub const SPRITE_COUNT: usize = 16;
 pub const SPRITE_COLS: u32 = 4;
-pub const SPRITE_CELL: u32 = 64;
+/// Particles are drawn large and close -- a smoke puff can be half the
+/// screen -- and there are no mips on this atlas, so the cell size is the
+/// only thing standing between a plume and a staircase.
+pub const SPRITE_CELL: u32 = 128;
 pub const SPRITE_ATLAS: u32 = SPRITE_COLS * SPRITE_CELL;
 
 impl Sprite {
@@ -1193,11 +1196,28 @@ pub fn generate_sprite_atlas() -> (u32, Vec<u8>) {
         let a = (1.0 - r * 2.4).clamp(0.0, 1.0);
         (1.0, a)
     });
-    // Shell casing: a small bright rectangle.
+    // Shell casing.
+    //
+    // This was a hard-edged rectangle of flat brightness, which at the size
+    // it is drawn is a yellow domino tumbling out of the gun. A case is a
+    // little brass cylinder: rounded ends, a rim at the base, dark where it
+    // turns away and a hot line along the top where the light runs down it.
     put(Sprite::Casing, &mut |u, v| {
-        let a = if u.abs() < 0.75 && v.abs() < 0.28 { 1.0 } else { 0.0 };
-        let shade = 0.7 + (1.0 - v.abs() / 0.28).max(0.0) * 0.4;
-        (shade, a)
+        let body = 0.80f32;
+        let radius = 0.30f32;
+        // Distance to the axis segment, so the ends are round.
+        let dx = (u.abs() - (body - radius)).max(0.0);
+        let d = (dx * dx + v * v).sqrt();
+        let a = ((radius - d) * 9.0).clamp(0.0, 1.0);
+        // Cylindrical shading across the short axis.
+        let across = (v / radius).clamp(-1.0, 1.0);
+        let round = (1.0 - across * across).sqrt();
+        let mut shade = 0.34 + round * 0.62;
+        // Specular line, high on the lit side.
+        shade += (1.0 - ((across + 0.45) * 3.4).abs()).max(0.0) * 0.45;
+        // Extractor rim at the base.
+        if u < -(body - radius) - 0.06 { shade *= 0.72; }
+        (shade.min(1.0), a)
     });
     // Expanding shockwave ring.
     put(Sprite::Ring, &mut |u, v| {

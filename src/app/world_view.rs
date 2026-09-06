@@ -233,11 +233,14 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
             // centimetre sleeve: one blob of one colour, and every soldier
             // came out in flat tan. Tiling a few times per limb is what makes
             // the pattern a pattern.
+            // Not much more than one: tiled three times over a limb, a
+            // camouflage pattern repeats often enough to read as a woven
+            // basket rather than as disruptive blotches.
             let uv = match look {
-                PartLook::Fatigues => 3.0,
-                PartLook::Webbing => 2.4,
-                PartLook::Boots => 2.0,
-                PartLook::Hard => 1.6,
+                PartLook::Fatigues => 1.7,
+                PartLook::Webbing => 1.5,
+                PartLook::Boots => 1.6,
+                PartLook::Hard => 1.4,
                 PartLook::Skin => 1.0,
             };
             r.push_part(meshgen::part_shape(part), PartInstance::from_matrix(
