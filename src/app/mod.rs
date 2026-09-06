@@ -250,10 +250,20 @@ pub enum TextTarget {
 }
 
 impl App {
-    pub fn new(window: Arc<Window>, settings: Settings, progression: Progression) -> Result<App, String> {
+    pub fn new(window: Arc<Window>, mut settings: Settings, progression: Progression) -> Result<App, String> {
         let render_settings = settings.render_settings();
         let texture_size = settings.texture_quality.texture_size();
-        let renderer = Renderer::new(window.clone(), render_settings, settings.vsync, texture_size)?;
+        let mut renderer = Renderer::new(window.clone(), render_settings, settings.vsync, texture_size)?;
+
+        // First run: pick the graphics settings from the adapter we actually
+        // got, then hand them straight back to the renderer.
+        if settings.first_run {
+            settings.apply_hardware_defaults(renderer.low_power());
+            renderer.apply_settings(settings.render_settings(), settings.vsync);
+            renderer.set_texture_size(settings.texture_quality.texture_size());
+            let _ = settings.save();
+        }
+        let renderer = renderer;
 
         let audio = AudioEngine::new();
         audio.set_volumes(

@@ -99,6 +99,8 @@ pub struct Settings {
 
     path: PathBuf,
     dirty: bool,
+    /// True when there was no settings file to load.
+    pub first_run: bool,
 }
 
 impl Default for Settings {
@@ -147,6 +149,7 @@ impl Default for Settings {
             favourites: Vec::new(),
             path: data_dir().join("settings.cfg"),
             dirty: false,
+            first_run: false,
         }
     }
 }
@@ -163,6 +166,10 @@ fn default_name() -> String {
 impl Settings {
     pub fn load() -> Settings {
         let mut s = Settings::default();
+        // No config file means this is the first run, and the graphics
+        // defaults should be chosen from the hardware rather than guessed.
+        // The caller does that once the adapter is known.
+        s.first_run = !s.path.exists();
         let kv = Kv::load(&s.path);
 
         s.fullscreen = kv.bool_or("display.fullscreen", s.fullscreen);
@@ -321,6 +328,35 @@ impl Settings {
             Quality::Medium => BakeQuality::Shadows,
             Quality::High => BakeQuality::Full,
         }
+    }
+
+    /// Chooses graphics defaults from the adapter, on first run only.
+    ///
+    /// The renderer has always worked out whether it is on an integrated or
+    /// software adapter and then never told anyone. A player on a laptop
+    /// integrated chip and a player on a discrete card should not open the
+    /// game to the same settings, and neither should have to go and find the
+    /// menu before it looks or runs the way it can.
+    pub fn apply_hardware_defaults(&mut self, low_power: bool) {
+        if !self.first_run { return; }
+        self.first_run = false;
+        if low_power {
+            self.apply_low_preset();
+            // The Low preset turns vsync off, which is right when a player
+            // picks it to chase frames but wrong as a default: an integrated
+            // chip rendering three hundred unseen frames is just heat.
+            self.vsync = true;
+        } else {
+            // Not the High preset: that raises view distance and texture
+            // resolution, which cost memory and load time on a machine we
+            // know nothing about beyond it having a discrete adapter.
+            // Multisampling and full anisotropy are the two that are close to
+            // free on anything discrete and do the most for how it looks.
+            self.apply_balanced_preset();
+            self.antialiasing = true;
+            self.anisotropy = 16;
+        }
+        self.dirty = true;
     }
 
     /// Everything turned down, for the weakest hardware the game targets.

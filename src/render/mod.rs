@@ -519,6 +519,8 @@ impl Renderer {
     }
 
     pub fn adapter_name(&self) -> &str { &self.gpu.adapter_name }
+    /// True when the adapter is integrated, software or otherwise weak.
+    pub fn low_power(&self) -> bool { self.gpu.low_power }
     pub fn backend(&self) -> &str { &self.gpu.backend }
     pub fn texture_memory(&self) -> usize { self.texture_bytes }
     pub fn scene_memory(&self) -> usize { self.targets.memory_bytes() }
