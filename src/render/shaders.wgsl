@@ -245,23 +245,33 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
         var p = (G.camera_pos.xz + dir.xz * t) * 0.0060;
         p += vec2<f32>(G.time.x * 0.012, G.time.x * 0.006);
 
-        // Three octaves. A fourth is not visible at this scale and the sky is
-        // a lot of pixels.
-        var n = sky_noise(p) * 0.55;
-        n += sky_noise(p * 2.17 + 3.1) * 0.28;
-        n += sky_noise(p * 4.31 + 7.7) * 0.17;
+        // Four octaves. The fourth is worth its cost overhead, where the
+        // projection is not stretching the noise and a cloud has enough size
+        // on screen to show an edge; it is faded out toward the horizon with
+        // everything else.
+        var n = sky_noise(p) * 0.52;
+        n += sky_noise(p * 2.17 + 3.1) * 0.27;
+        n += sky_noise(p * 4.31 + 7.7) * 0.15;
+        n += sky_noise(p * 8.90 + 19.3) * 0.06 * smoothstep(0.10, 0.45, dir.y);
 
         // Thin the cover toward the horizon, where the projection stretches
         // the noise into streaks that read as smearing rather than as cloud.
         let band = smoothstep(0.015, 0.30, dir.y);
         let lo = mix(0.66, 0.24, cover);
-        let amount = smoothstep(lo, lo + 0.20, n) * band;
 
-        // Lit on the sun's side, grey away from it: two tones and a threshold,
-        // which is exactly how this looked in 2002 and still reads as sky.
-        let lit = mix(vec3<f32>(0.78, 0.78, 0.80), vec3<f32>(1.06, 1.03, 0.96),
-                      pow(sun_dot, 2.0));
-        c = mix(c, lit * mix(0.72, 1.0, up_amt), amount * 0.92);
+        // Coverage and depth, separately. One threshold gives a flat stencil
+        // of one grey, which is what made these read as airbrushed smudges:
+        // the edge of a cumulus is thin and lets the sky through, and its
+        // middle is opaque, bright on the sun's side and grey underneath.
+        let edge = smoothstep(lo, lo + 0.17, n);
+        let core = smoothstep(lo + 0.10, lo + 0.44, n);
+        let amount = edge * band;
+
+        let base = mix(vec3<f32>(0.58, 0.60, 0.67), vec3<f32>(0.84, 0.84, 0.87), core);
+        let sunny = mix(vec3<f32>(0.90, 0.90, 0.92), vec3<f32>(1.12, 1.07, 0.98),
+                        pow(sun_dot, 2.0));
+        let lit = mix(base, sunny, 0.32 + core * 0.52);
+        c = mix(c, lit * mix(0.72, 1.0, up_amt), amount * 0.94);
     }
 
     // Fully fogged geometry is fog_color, so the sky must be exactly that at
