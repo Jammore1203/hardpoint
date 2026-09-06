@@ -198,6 +198,16 @@ fn sky_hash(p: vec2<f32>) -> f32 {
     return fract((r.x + r.y) * r.x * r.y);
 }
 
+// Each octave is turned before it is sampled. Value noise is built on an
+// axis-aligned lattice and its isolines are diamonds; stack four octaves all
+// facing the same way and the diamonds reinforce, which is what put the
+// kite-shaped hard edges in the cloud cover.
+fn sky_turn(p: vec2<f32>, a: f32) -> vec2<f32> {
+    let c = cos(a);
+    let s = sin(a);
+    return vec2<f32>(p.x * c - p.y * s, p.x * s + p.y * c);
+}
+
 fn sky_noise(p: vec2<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
@@ -250,9 +260,10 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
         // on screen to show an edge; it is faded out toward the horizon with
         // everything else.
         var n = sky_noise(p) * 0.52;
-        n += sky_noise(p * 2.17 + 3.1) * 0.27;
-        n += sky_noise(p * 4.31 + 7.7) * 0.15;
-        n += sky_noise(p * 8.90 + 19.3) * 0.06 * smoothstep(0.10, 0.45, dir.y);
+        n += sky_noise(sky_turn(p * 2.17, 0.83) + 3.1) * 0.27;
+        n += sky_noise(sky_turn(p * 4.31, 1.97) + 7.7) * 0.15;
+        n += sky_noise(sky_turn(p * 8.90, 2.74) + 19.3) * 0.06
+             * smoothstep(0.10, 0.45, dir.y);
 
         // Thin the cover toward the horizon, where the projection stretches
         // the noise into streaks that read as smearing rather than as cloud.
@@ -272,6 +283,22 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
                         pow(sun_dot, 2.0));
         let lit = mix(base, sunny, 0.32 + core * 0.52);
         c = mix(c, lit * mix(0.72, 1.0, up_amt), amount * 0.94);
+    }
+
+    // A second layer, much higher, much thinner and much slower: cirrus over
+    // the cumulus. Two layers at different heights part on the view ray at
+    // different rates, which is the only cue a sky has that it has depth.
+    if (cover > 0.001 && dir.y > 0.04) {
+        let t2 = 1500.0 / dir.y;
+        var q = (G.camera_pos.xz + dir.xz * t2) * 0.0021;
+        q += vec2<f32>(G.time.x * 0.004, G.time.x * -0.002);
+        var m = sky_noise(q) * 0.6 + sky_noise(sky_turn(q * 2.3, 1.21) + 5.7) * 0.4;
+        // Stretched along one axis so it streaks the way high cloud does.
+        m = m * 0.7 + sky_noise(vec2<f32>(q.x * 0.55, q.y * 2.2) + 13.0) * 0.3;
+        let hi_band = smoothstep(0.04, 0.34, dir.y);
+        let hi = smoothstep(0.52, 0.78, m) * hi_band * mix(0.10, 0.34, cover);
+        c = mix(c, mix(vec3<f32>(0.94, 0.94, 0.96), vec3<f32>(1.06, 1.02, 0.96),
+                       pow(sun_dot, 3.0)), hi);
     }
 
     // Fully fogged geometry is fog_color, so the sky must be exactly that at

@@ -519,6 +519,43 @@ fn gen_foliage(p: &mut Painter, tint: [u8; 3], cutout: bool, seed: u32) {
     if !cutout { p.grime(0.3, seed); }
 }
 
+/// Polished stone with veining.
+///
+/// Marble was `gen_rough`, which is the concrete generator with the grain
+/// turned down: pale, speckled, and indistinguishable from plaster. What
+/// makes marble marble is the veins.
+fn gen_marble(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    p.shade_relief(tint, 0.06, |u, v| {
+        // Domain-warped bands: a smooth gradient folded back on itself, which
+        // is the standard way to draw a vein and still the cheapest. Two
+        // families at different angles and scales, because a slab with one
+        // set of parallel veins reads as a contour map.
+        let warp = fbm(u * 2.4, v * 2.4, 2, 4, seed) - 0.5;
+        let warp2 = fbm(u * 6.0, v * 6.0, 6, 3, seed ^ 0x2D) - 0.5;
+        let vein_of = |x: f32, sharp: f32| -> (f32, f32) {
+            let b = (x * std::f32::consts::TAU).sin().abs();
+            // The core is a soft dark line; the halo around it is the wash of
+            // colour that makes the vein look like it is in the stone rather
+            // than drawn on it.
+            ((1.0 - b).powf(sharp), (1.0 - b).powf(1.1))
+        };
+        let (a_core, a_halo) = vein_of(u * 1.7 + v * 0.8 + warp * 3.4 + warp2 * 1.1, 3.2);
+        let (b_core, b_halo) = vein_of(u * -0.9 + v * 2.2 + warp * 2.6 - warp2 * 1.5, 4.4);
+
+        // Some of the slab is nearly clean; the veining runs in seams.
+        let seam = 0.35 + fbm(u * 1.6, v * 1.6, 1, 3, seed ^ 0x5B) * 1.15;
+        let core = (a_core + b_core * 0.7).min(1.4) * seam;
+        let halo = (a_halo + b_halo * 0.6) * 0.5 * seam;
+
+        let grain = vnoise(u * 140.0, v * 140.0, 140, seed ^ 0x63) - 0.5;
+        let albedo = 1.05 - core * 0.30 - halo * 0.14 + grain * 0.04 + warp * 0.05;
+        // Almost flat: polished stone has no relief to speak of, and the
+        // little there is comes from the softer vein material wearing back.
+        let height = -core * 0.28 + grain * 0.10;
+        (albedo, height)
+    });
+}
+
 /// Ground cover: turf with bare earth showing through it.
 ///
 /// Grass shared a generator with tree canopy, which is a mass of leaves seen
@@ -1142,7 +1179,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         WaterSurface => gen_water(&mut p, tint, seed ^ 0x9),
         Fabric => gen_woven(&mut p, tint, 10.0, 0.14, seed),
         DirtRoad => gen_granular(&mut p, tint, 16.0, 0.20, seed),
-        Marble => gen_rough(&mut p, tint, 0.05, 0.30, seed),
+        Marble => gen_marble(&mut p, tint, seed),
         Bunker => gen_panel(&mut p, tint, 1.5, false, 0.15, seed),
         Duct => gen_corrugated(&mut p, tint, 8.0, seed),
         GunMetal => gen_gunmetal(&mut p, tint, seed),
