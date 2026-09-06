@@ -264,19 +264,21 @@ pub struct Renderer {
     pipe_blit: wgpu::RenderPipeline,
     pipe_ui: wgpu::RenderPipeline,
 
-    cube_vb: wgpu::Buffer,
-    cube_ib: wgpu::Buffer,
-    cube_indices: u32,
+    /// One mesh per `PartShape`, and one instance stream per mesh. A shape is
+    /// a draw call, not a per-instance branch.
+    shape_vb: Vec<wgpu::Buffer>,
+    shape_ib: Vec<wgpu::Buffer>,
+    shape_indices: Vec<u32>,
+    shape_bufs: Vec<DynBuffer>,
+    vm_shape_bufs: Vec<DynBuffer>,
     quad_vb: wgpu::Buffer,
     quad_ib: wgpu::Buffer,
 
-    part_buf: DynBuffer,
-    vm_buf: DynBuffer,
     sprite_buf: DynBuffer,
     ui_buf: DynBuffer,
 
-    pub parts: Vec<PartInstance>,
-    pub viewmodel: Vec<PartInstance>,
+    parts: Vec<Vec<PartInstance>>,
+    viewmodel: Vec<Vec<PartInstance>>,
     pub sprites: Vec<SpriteInstance>,
     pub ui: Vec<UiVertex>,
 
@@ -361,8 +363,16 @@ impl Renderer {
         let (scene_layout, scene_bg) = build_scene_bindings(device, &targets);
 
         let (cube_v, cube_i) = meshgen::unit_cube();
-        let cube_vb = create_buffer(device, "cube vertices", bytemuck::cast_slice(&cube_v), wgpu::BufferUsages::VERTEX);
-        let cube_ib = create_buffer(device, "cube indices", bytemuck::cast_slice(&cube_i), wgpu::BufferUsages::INDEX);
+        let mut shape_vb = Vec::with_capacity(meshgen::PART_SHAPES);
+        let mut shape_ib = Vec::with_capacity(meshgen::PART_SHAPES);
+        let mut shape_indices = Vec::with_capacity(meshgen::PART_SHAPES);
+        for shape in meshgen::ALL_SHAPES {
+            let (v, i) = meshgen::shape_mesh(shape);
+            shape_vb.push(create_buffer(device, "part vertices", bytemuck::cast_slice(&v), wgpu::BufferUsages::VERTEX));
+            shape_ib.push(create_buffer(device, "part indices", bytemuck::cast_slice(&i), wgpu::BufferUsages::INDEX));
+            shape_indices.push(i.len() as u32);
+        }
+        let _ = (&cube_v, &cube_i);
         let (quad_v, quad_i) = meshgen::unit_quad();
         let quad_vb = create_buffer(device, "quad vertices", bytemuck::cast_slice(&quad_v), wgpu::BufferUsages::VERTEX);
         let quad_ib = create_buffer(device, "quad indices", bytemuck::cast_slice(&quad_i), wgpu::BufferUsages::INDEX);
@@ -375,10 +385,14 @@ impl Renderer {
         };
         let pipes = build_pipelines(device, &shader, &layouts, samples, gpu.config.format);
 
-        let part_buf = DynBuffer::new(device, "part instances", wgpu::BufferUsages::VERTEX, 64 * 1024);
-        let vm_buf = DynBuffer::new(device, "viewmodel instances", wgpu::BufferUsages::VERTEX, 8 * 1024);
         let sprite_buf = DynBuffer::new(device, "sprite instances", wgpu::BufferUsages::VERTEX, 256 * 1024);
         let ui_buf = DynBuffer::new(device, "ui vertices", wgpu::BufferUsages::VERTEX, 512 * 1024);
+        let shape_bufs: Vec<DynBuffer> = (0..meshgen::PART_SHAPES)
+            .map(|_| DynBuffer::new(device, "part instances", wgpu::BufferUsages::VERTEX, 16 * 1024))
+            .collect();
+        let vm_shape_bufs: Vec<DynBuffer> = (0..meshgen::PART_SHAPES)
+            .map(|_| DynBuffer::new(device, "viewmodel instances", wgpu::BufferUsages::VERTEX, 4 * 1024))
+            .collect();
 
         Ok(Renderer {
             gpu,
@@ -403,17 +417,17 @@ impl Renderer {
             pipe_sprite: pipes.sprite,
             pipe_blit: pipes.blit,
             pipe_ui: pipes.ui,
-            cube_vb,
-            cube_ib,
-            cube_indices: cube_i.len() as u32,
+            shape_vb,
+            shape_ib,
+            shape_indices,
+            shape_bufs,
+            vm_shape_bufs,
             quad_vb,
             quad_ib,
-            part_buf,
-            vm_buf,
             sprite_buf,
             ui_buf,
-            parts: Vec::with_capacity(512),
-            viewmodel: Vec::with_capacity(64),
+            parts: (0..meshgen::PART_SHAPES).map(|_| Vec::with_capacity(256)).collect(),
+            viewmodel: (0..meshgen::PART_SHAPES).map(|_| Vec::with_capacity(32)).collect(),
             sprites: Vec::with_capacity(2048),
             ui: Vec::with_capacity(8192),
             map: None,
@@ -623,17 +637,21 @@ impl Renderer {
 
     /// Starts a frame: clears the per-frame lists.
     pub fn begin(&mut self) {
-        self.parts.clear();
-        self.viewmodel.clear();
+        for p in self.parts.iter_mut() { p.clear(); }
+        for p in self.viewmodel.iter_mut() { p.clear(); }
         self.sprites.clear();
         self.ui.clear();
         self.stats = RenderStats::default();
     }
 
     #[inline]
-    pub fn push_part(&mut self, i: PartInstance) { self.parts.push(i); }
+    pub fn push_part(&mut self, shape: meshgen::PartShape, i: PartInstance) {
+        self.parts[shape as usize].push(i);
+    }
     #[inline]
-    pub fn push_viewmodel(&mut self, i: PartInstance) { self.viewmodel.push(i); }
+    pub fn push_viewmodel(&mut self, shape: meshgen::PartShape, i: PartInstance) {
+        self.viewmodel[shape as usize].push(i);
+    }
     #[inline]
     pub fn push_sprite(&mut self, s: SpriteInstance) { self.sprites.push(s); }
 
@@ -714,8 +732,12 @@ impl Renderer {
         self.globals.write(&self.gpu.device, &self.gpu.queue, bytemuck::bytes_of(&globals));
 
         // Upload the per-frame streams.
-        self.part_buf.write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(&self.parts));
-        self.vm_buf.write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(&self.viewmodel));
+        for (i, list) in self.parts.iter().enumerate() {
+            self.shape_bufs[i].write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(list));
+        }
+        for (i, list) in self.viewmodel.iter().enumerate() {
+            self.vm_shape_bufs[i].write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(list));
+        }
         self.sprite_buf.write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(&self.sprites));
         self.ui_buf.write(&self.gpu.device, &self.gpu.queue, bytemuck::cast_slice(&self.ui));
 
@@ -790,15 +812,18 @@ impl Renderer {
                 }
             }
 
-            // Characters and props.
-            if !self.parts.is_empty() {
+            // Characters and props: one draw per shape.
+            if self.parts.iter().any(|p| !p.is_empty()) {
                 rp.set_pipeline(&self.pipe_part);
-                rp.set_vertex_buffer(0, self.cube_vb.slice(..));
-                rp.set_vertex_buffer(1, self.part_buf.buffer.slice(..));
-                rp.set_index_buffer(self.cube_ib.slice(..), wgpu::IndexFormat::Uint16);
-                rp.draw_indexed(0..self.cube_indices, 0, 0..self.parts.len() as u32);
-                self.stats.draw_calls += 1;
-                self.stats.triangles += (self.cube_indices / 3) * self.parts.len() as u32;
+                for (i, list) in self.parts.iter().enumerate() {
+                    if list.is_empty() { continue; }
+                    rp.set_vertex_buffer(0, self.shape_vb[i].slice(..));
+                    rp.set_vertex_buffer(1, self.shape_bufs[i].buffer.slice(..));
+                    rp.set_index_buffer(self.shape_ib[i].slice(..), wgpu::IndexFormat::Uint16);
+                    rp.draw_indexed(0..self.shape_indices[i], 0, 0..list.len() as u32);
+                    self.stats.draw_calls += 1;
+                    self.stats.triangles += (self.shape_indices[i] / 3) * list.len() as u32;
+                }
             }
 
             // Particles and decals.
@@ -839,16 +864,19 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            if !self.viewmodel.is_empty() {
+            if self.viewmodel.iter().any(|p| !p.is_empty()) {
                 rp.set_bind_group(0, &self.globals_bg, &[]);
                 rp.set_bind_group(1, &self.world_bg, &[]);
                 rp.set_bind_group(2, &self.atlas_bg, &[]);
                 rp.set_pipeline(&self.pipe_viewmodel);
-                rp.set_vertex_buffer(0, self.cube_vb.slice(..));
-                rp.set_vertex_buffer(1, self.vm_buf.buffer.slice(..));
-                rp.set_index_buffer(self.cube_ib.slice(..), wgpu::IndexFormat::Uint16);
-                rp.draw_indexed(0..self.cube_indices, 0, 0..self.viewmodel.len() as u32);
-                self.stats.draw_calls += 1;
+                for (i, list) in self.viewmodel.iter().enumerate() {
+                    if list.is_empty() { continue; }
+                    rp.set_vertex_buffer(0, self.shape_vb[i].slice(..));
+                    rp.set_vertex_buffer(1, self.vm_shape_bufs[i].buffer.slice(..));
+                    rp.set_index_buffer(self.shape_ib[i].slice(..), wgpu::IndexFormat::Uint16);
+                    rp.draw_indexed(0..self.shape_indices[i], 0, 0..list.len() as u32);
+                    self.stats.draw_calls += 1;
+                }
             }
         }
 

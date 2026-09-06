@@ -319,10 +319,11 @@ fn bush(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, w: f32, h: f32) {
     c.tex_scale = 2.0;
 }
 
-/// A cylindrical storage tank, approximated with a chamfered box stack.
+/// A cylindrical storage tank. One octagonal brush, rather than the two
+/// crossed boxes this used to be: the silhouette is the same and it is one
+/// solid instead of two overlapping ones.
 fn tank(b: &mut MapBuilder, cx: f32, y: f32, cz: f32, r: f32, h: f32, mat: Mat) {
-    b.boxc(cx, y, cz, r * 2.0, h, r * 1.42, mat).with_scale(3.0);
-    b.boxc(cx, y, cz, r * 1.42, h, r * 2.0, mat).with_scale(3.0);
+    b.column(cx, y, cz, r, h, mat).with_scale(3.0);
 }
 
 /// A short flight of steps plus the landing it serves.

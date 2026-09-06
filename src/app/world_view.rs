@@ -223,7 +223,7 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
                 PartLook::Boots => [0.46, 0.44, 0.42, 1.0],
                 PartLook::Fatigues => tint,
             };
-            r.push_part(PartInstance::from_matrix(
+            r.push_part(meshgen::part_shape(part), PartInstance::from_matrix(
                 pose.parts[part as usize], color, mat.layer(), [1.0, 0.0, 0.0]));
         }
 
@@ -232,7 +232,7 @@ pub fn draw_players(r: &mut Renderer, client: &Client, map: &MapData, time: f32,
         // thing wrong with these models at any range you could see them.
         for wp in model.parts {
             let m = meshgen::weapon_part_matrix(pose.weapon, model_scale, wp);
-            r.push_part(PartInstance::from_matrix(
+            r.push_part(wp.shape, PartInstance::from_matrix(
                 m, [0.90, 0.90, 0.90, 1.0], wp.mat.layer(), [1.0, 0.0, 0.0]));
         }
 
@@ -276,7 +276,8 @@ pub fn draw_entities(r: &mut Renderer, world: &ClientWorld, time: f32) {
             Equipment::Smoke => [0.55, 0.60, 0.55, 1.0],
             Equipment::Concussion => [0.50, 0.55, 0.75, 1.0],
         };
-        r.push_part(PartInstance::from_matrix(m, color, Mat::MetalPanel.layer(), [1.0, 0.0, 0.0]));
+        r.push_part(meshgen::PartShape::Bevel,
+                    PartInstance::from_matrix(m, color, Mat::MetalPanel.layer(), [1.0, 0.0, 0.0]));
         // A blinking indicator on a live grenade, so it can be reacted to.
         let blink = ((g.age * 9.0).sin() * 0.5 + 0.5) * 0.9;
         r.push_sprite(SpriteInstance::billboard(
@@ -299,7 +300,9 @@ pub fn draw_entities(r: &mut Renderer, world: &ClientWorld, time: f32) {
         let m = Mat4::from_translation(p.pos + Vec3::Y * bob)
             * Mat4::from_rotation_y(spin)
             * Mat4::from_scale(Vec3::new(0.34, 0.26, 0.34));
-        r.push_part(PartInstance::from_matrix(m, color, mat.layer(), [1.0, 0.0, 0.0]));
+        // Pickups tumble in the air; a bevelled crate reads better than a box.
+        r.push_part(meshgen::PartShape::Bevel,
+                    PartInstance::from_matrix(m, color, mat.layer(), [1.0, 0.0, 0.0]));
         r.push_sprite(SpriteInstance::billboard(
             p.pos + Vec3::Y * 0.5, 0.5, 0.0, Sprite::Glow,
             [color[0], color[1], color[2], 0.22],
@@ -389,12 +392,12 @@ impl ViewModel {
         // The models are built at real proportions - a rifle is most of a
         // metre - so the carry positions sit further out than they did when a
         // rifle was seven boxes and sixty centimetres long.
-        let hip = Vec3::new(0.150, -0.205, -0.80);
+        let hip = Vec3::new(0.150, -0.205, -0.86);
         // Aiming is derived, not authored: put the weapon where its own rear
         // sight lands on the centre of the screen. Every weapon then has a
         // correct sight picture for free, and moving a sight on a model moves
         // the sight picture with it.
-        let sight_dist = 0.62f32;
+        let sight_dist = 0.74f32;
         // Viewmodels are foreshortened along the weapon's own axis: the world
         // models are at real proportions and the shooter's eye is at the butt
         // of one, so drawn full length the stock fills the middle of the
@@ -465,7 +468,7 @@ impl ViewModel {
 
         for part in model.parts {
             let m = meshgen::weapon_part_matrix(hands, model_scale, part);
-            r.push_viewmodel(PartInstance::from_matrix(
+            r.push_viewmodel(part.shape, PartInstance::from_matrix(
                 m, [1.0, 1.0, 1.0, 1.0], part.mat.layer(), [1.0, 0.0, 0.0]));
         }
 
@@ -475,7 +478,7 @@ impl ViewModel {
         // revolver, whose most forward box is the barrel.
         fn glove(r: &mut Renderer, hands: Mat4, at: Vec3, size: Vec3) {
             let m = hands * Mat4::from_translation(at) * Mat4::from_scale(size);
-            r.push_viewmodel(PartInstance::from_matrix(
+            r.push_viewmodel(meshgen::PartShape::Capsule, PartInstance::from_matrix(
                 m, [0.88, 0.86, 0.82, 1.0], Mat::Tarp.layer(), [1.0, 0.0, 0.0]));
         }
         // A forearm is a box aimed along `dir`, built from an explicit basis so
@@ -484,13 +487,17 @@ impl ViewModel {
             let f = dir.normalize();
             let right = Vec3::Y.cross(f).normalize();
             let up = f.cross(right);
+            // The capsule mesh runs along its own Y, so the arm's length has
+            // to be the Y column. Putting it in Z - which is right for a box,
+            // and was - squashes the capsule flat and leaves a lens-shaped
+            // blob where the sleeve should be.
             let m = hands * Mat4::from_cols(
                 (right * thick).extend(0.0),
-                (up * thick * 0.86).extend(0.0),
                 (f * len).extend(0.0),
+                (up * thick * 0.86).extend(0.0),
                 (from + f * (len * 0.5)).extend(1.0),
             );
-            r.push_viewmodel(PartInstance::from_matrix(
+            r.push_viewmodel(meshgen::PartShape::Capsule, PartInstance::from_matrix(
                 m, [0.72, 0.72, 0.70, 1.0], Mat::Camo.layer(), [1.0, 0.0, 0.0]));
         }
 

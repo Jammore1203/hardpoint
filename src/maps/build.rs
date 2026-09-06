@@ -409,9 +409,10 @@ impl MapBuilder {
         self.boxx(x, y, z, sx, 1.10, sz, Mat::Concrete).with_scale(2.0);
     }
 
-    /// A fuel drum. Small, round-ish cover; also a grenade landmark.
+    /// A fuel drum. Round, because a drum is round and there are hundreds of
+    /// them across these maps.
     pub fn barrel(&mut self, cx: f32, y: f32, cz: f32, mat: Mat) {
-        self.boxc(cx, y, cz, 0.66, 0.92, 0.66, mat).with_scale(0.9);
+        self.column(cx, y, cz, 0.33, 0.92, mat).with_scale(0.9);
     }
 
     /// A vertical pillar or support column.

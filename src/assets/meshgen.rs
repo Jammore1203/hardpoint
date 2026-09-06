@@ -660,6 +660,291 @@ pub fn unit_cube() -> (Vec<PartVertex>, Vec<u16>) {
     (verts, idx)
 }
 
+/// The shapes an instanced part can be drawn as.
+///
+/// Everything used to be a cube, which is why the guns and the soldiers read
+/// as stacks of boxes however many boxes they were made of. A barrel is a
+/// cylinder, a helmet is a dome, an arm is a capsule; drawing them as such
+/// costs one more vertex buffer each and a separate instance stream, and no
+/// extra work per instance at all.
+///
+/// The curved shapes carry smooth normals - radial on a cylinder wall,
+/// spherical on a dome - so the fixed three-quarter key in the part shader
+/// shades them as curves rather than as facets. That is the whole trick: the
+/// geometry is coarse, and the lighting is what makes it read as round.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum PartShape {
+    Cube = 0,
+    /// Capped cylinder along Y, unit diameter and height.
+    Cylinder,
+    /// Cylinder with hemispherical ends: limbs, grips, sausages.
+    Capsule,
+    /// Cone along Y, base at the bottom.
+    Cone,
+    /// Sphere: heads, domes, drums.
+    Sphere,
+    /// A box with its twelve edges chamfered. Still a box, but one that
+    /// catches a highlight on every edge instead of dying at each corner.
+    Bevel,
+}
+
+pub const PART_SHAPES: usize = 6;
+
+pub const ALL_SHAPES: [PartShape; PART_SHAPES] = [
+    PartShape::Cube, PartShape::Cylinder, PartShape::Capsule,
+    PartShape::Cone, PartShape::Sphere, PartShape::Bevel,
+];
+
+/// Builds the mesh for one shape, in a unit cube centred on the origin.
+pub fn shape_mesh(shape: PartShape) -> (Vec<PartVertex>, Vec<u16>) {
+    match shape {
+        PartShape::Cube => unit_cube(),
+        PartShape::Cylinder => unit_cylinder(12, false),
+        PartShape::Capsule => unit_capsule(12, 3),
+        PartShape::Cone => unit_cylinder(12, true),
+        PartShape::Sphere => unit_sphere(12, 7),
+        PartShape::Bevel => unit_bevel(0.11),
+    }
+}
+
+/// A cylinder along Y, or a cone if `taper` is set. Unit diameter, unit height.
+fn unit_cylinder(sides: usize, taper: bool) -> (Vec<PartVertex>, Vec<u16>) {
+    let mut v = Vec::with_capacity(sides * 4 + 2);
+    let mut idx = Vec::with_capacity(sides * 12);
+    let top_r = if taper { 0.0 } else { 0.5 };
+
+    // Wall: one vertex ring top and bottom, normals radial so the wall shades
+    // as a curve.
+    for i in 0..=sides {
+        let a = i as f32 / sides as f32 * std::f32::consts::TAU;
+        let (sa, ca) = a.sin_cos();
+        let n = if taper {
+            // A cone's surface normal leans outward by its slope.
+            Vec3::new(ca, 0.5, sa).normalize()
+        } else {
+            Vec3::new(ca, 0.0, sa)
+        };
+        let u = i as f32 / sides as f32;
+        v.push(PartVertex { pos: [ca * 0.5, -0.5, sa * 0.5], normal: [n.x, n.y, n.z], uv: [u, 1.0] });
+        v.push(PartVertex { pos: [ca * top_r, 0.5, sa * top_r], normal: [n.x, n.y, n.z], uv: [u, 0.0] });
+    }
+    for i in 0..sides {
+        let b = (i * 2) as u16;
+        idx.extend_from_slice(&[b, b + 1, b + 3, b, b + 3, b + 2]);
+    }
+
+    // Caps as fans.
+    let bottom_centre = v.len() as u16;
+    v.push(PartVertex { pos: [0.0, -0.5, 0.0], normal: [0.0, -1.0, 0.0], uv: [0.5, 0.5] });
+    let bottom_ring = v.len() as u16;
+    for i in 0..sides {
+        let a = i as f32 / sides as f32 * std::f32::consts::TAU;
+        let (sa, ca) = a.sin_cos();
+        v.push(PartVertex { pos: [ca * 0.5, -0.5, sa * 0.5], normal: [0.0, -1.0, 0.0],
+                            uv: [ca * 0.5 + 0.5, sa * 0.5 + 0.5] });
+    }
+    for i in 0..sides {
+        let a = bottom_ring + i as u16;
+        let b = bottom_ring + ((i + 1) % sides) as u16;
+        idx.extend_from_slice(&[bottom_centre, b, a]);
+    }
+    if !taper {
+        let top_centre = v.len() as u16;
+        v.push(PartVertex { pos: [0.0, 0.5, 0.0], normal: [0.0, 1.0, 0.0], uv: [0.5, 0.5] });
+        let top_ring = v.len() as u16;
+        for i in 0..sides {
+            let a = i as f32 / sides as f32 * std::f32::consts::TAU;
+            let (sa, ca) = a.sin_cos();
+            v.push(PartVertex { pos: [ca * 0.5, 0.5, sa * 0.5], normal: [0.0, 1.0, 0.0],
+                                uv: [ca * 0.5 + 0.5, sa * 0.5 + 0.5] });
+        }
+        for i in 0..sides {
+            let a = top_ring + i as u16;
+            let b = top_ring + ((i + 1) % sides) as u16;
+            idx.extend_from_slice(&[top_centre, a, b]);
+        }
+    }
+    (v, idx)
+}
+
+/// A sphere, built as stacked rings. Normals are the positions, so it is
+/// perfectly smooth however few segments it has.
+fn unit_sphere(segments: usize, rings: usize) -> (Vec<PartVertex>, Vec<u16>) {
+    let mut v = Vec::with_capacity((segments + 1) * (rings + 1));
+    let mut idx = Vec::with_capacity(segments * rings * 6);
+    for r in 0..=rings {
+        let phi = r as f32 / rings as f32 * std::f32::consts::PI;
+        let (sp, cp) = phi.sin_cos();
+        for sgm in 0..=segments {
+            let theta = sgm as f32 / segments as f32 * std::f32::consts::TAU;
+            let (st, ct) = theta.sin_cos();
+            let n = Vec3::new(sp * ct, cp, sp * st);
+            v.push(PartVertex {
+                pos: [n.x * 0.5, n.y * 0.5, n.z * 0.5],
+                normal: [n.x, n.y, n.z],
+                uv: [sgm as f32 / segments as f32, r as f32 / rings as f32],
+            });
+        }
+    }
+    let stride = (segments + 1) as u16;
+    for r in 0..rings as u16 {
+        for sgm in 0..segments as u16 {
+            let a = r * stride + sgm;
+            idx.extend_from_slice(&[a, a + stride, a + stride + 1, a, a + stride + 1, a + 1]);
+        }
+    }
+    (v, idx)
+}
+
+/// A capsule along Y: a cylindrical waist with rounded ends.
+///
+/// The caps take a fixed slice of the height rather than a hemisphere's worth.
+/// A hemisphere at this radius would use the entire unit height and leave no
+/// waist at all - which is what the first version of this did, making every
+/// "capsule" a sphere, and every limb and sleeve an ellipsoid that read as a
+/// flat lens once it was stretched.
+fn unit_capsule(segments: usize, cap_rings: usize) -> (Vec<PartVertex>, Vec<u16>) {
+    let mut v = Vec::new();
+    let mut idx: Vec<u16> = Vec::new();
+    let r = 0.5f32;
+    let cap = 0.16f32;
+    let waist = 0.5 - cap;
+    let total_rings = cap_rings * 2 + 1;
+
+    // Walk top pole to bottom pole. Rings 0..cap_rings are the top cap, the
+    // next is the waist bottom, then the bottom cap.
+    let ring = |phi: f32, y_centre: f32, out: &mut Vec<PartVertex>, row: usize| {
+        let (sp, cp) = phi.sin_cos();
+        for sgm in 0..=segments {
+            let theta = sgm as f32 / segments as f32 * std::f32::consts::TAU;
+            let (st, ct) = theta.sin_cos();
+            // Normal accounts for the cap being squashed relative to a sphere,
+            // so the shading is continuous where cap meets waist.
+            let n = Vec3::new(sp * ct * cap, cp * r, sp * st * cap).normalize_or_zero();
+            out.push(PartVertex {
+                pos: [sp * r * ct, y_centre + cp * cap, sp * r * st],
+                normal: [n.x, n.y, n.z],
+                uv: [sgm as f32 / segments as f32, row as f32 / total_rings as f32],
+            });
+        }
+    };
+
+    let mut row = 0usize;
+    for i in 0..=cap_rings {
+        let phi = i as f32 / cap_rings as f32 * std::f32::consts::FRAC_PI_2;
+        ring(phi, waist, &mut v, row);
+        row += 1;
+    }
+    for i in 0..=cap_rings {
+        let phi = std::f32::consts::FRAC_PI_2
+            + i as f32 / cap_rings as f32 * std::f32::consts::FRAC_PI_2;
+        ring(phi, -waist, &mut v, row);
+        row += 1;
+    }
+
+    let stride = (segments + 1) as u16;
+    let rings_built = (row - 1) as u16;
+    for rr in 0..rings_built {
+        for sgm in 0..segments as u16 {
+            let a = rr * stride + sgm;
+            idx.extend_from_slice(&[a, a + stride, a + stride + 1, a, a + stride + 1, a + 1]);
+        }
+    }
+    (v, idx)
+}
+
+/// A box with chamfered edges and corners.
+///
+/// Built by taking the cube's eight corners, pulling three vertices out of
+/// each along the face normals, and filling the faces, the twelve edge strips
+/// and the eight corner triangles. Flat-shaded per facet, which is what a
+/// bevel wants: the point is that an edge catches a different value from the
+/// faces either side of it.
+fn unit_bevel(cut: f32) -> (Vec<PartVertex>, Vec<u16>) {
+    let mut v: Vec<PartVertex> = Vec::new();
+    let mut idx: Vec<u16> = Vec::new();
+    let h = 0.5f32;
+    let i = h - cut.clamp(0.02, 0.45);
+
+    let mut quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3| {
+        let n = (b - a).cross(c - a).normalize_or_zero();
+        let base = v.len() as u16;
+        for (k, p) in [a, b, c, d].into_iter().enumerate() {
+            v.push(PartVertex {
+                pos: [p.x, p.y, p.z],
+                normal: [n.x, n.y, n.z],
+                uv: [(k == 1 || k == 2) as u8 as f32, (k >= 2) as u8 as f32],
+            });
+        }
+        idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    };
+
+    // Six faces, inset by the chamfer.
+    for (axis, sign) in [(0usize, 1.0f32), (0, -1.0), (1, 1.0), (1, -1.0), (2, 1.0), (2, -1.0)] {
+        let (a1, a2) = match (axis, sign > 0.0) {
+            (0, true) => (1usize, 2usize),
+            (0, false) => (2, 1),
+            (1, true) => (2, 0),
+            (1, false) => (0, 2),
+            (2, true) => (0, 1),
+            _ => (1, 0),
+        };
+        let corner = |s1: f32, s2: f32| {
+            let mut p = Vec3::ZERO;
+            p[axis] = h * sign;
+            p[a1] = i * s1;
+            p[a2] = i * s2;
+            p
+        };
+        quad(corner(-1.0, -1.0), corner(1.0, -1.0), corner(1.0, 1.0), corner(-1.0, 1.0));
+    }
+
+    // Twelve edge chamfers.
+    for axis in 0..3usize {
+        let (b1, b2) = ((axis + 1) % 3, (axis + 2) % 3);
+        for &s1 in &[-1.0f32, 1.0] {
+            for &s2 in &[-1.0f32, 1.0] {
+                let mut lo = Vec3::ZERO;
+                lo[axis] = -i;
+                let mut hi = Vec3::ZERO;
+                hi[axis] = i;
+                let mut e1 = Vec3::ZERO;
+                e1[b1] = h * s1;
+                e1[b2] = i * s2;
+                let mut e2 = Vec3::ZERO;
+                e2[b1] = i * s1;
+                e2[b2] = h * s2;
+                let (p0, p1, p2, p3) = (lo + e1, hi + e1, hi + e2, lo + e2);
+                // Wind so the facet faces outward.
+                if (p1 - p0).cross(p2 - p0).dot(e1 + e2) > 0.0 {
+                    quad(p0, p1, p2, p3);
+                } else {
+                    quad(p3, p2, p1, p0);
+                }
+            }
+        }
+    }
+
+    // Eight corner triangles.
+    for &sx in &[-1.0f32, 1.0] {
+        for &sy in &[-1.0f32, 1.0] {
+            for &sz in &[-1.0f32, 1.0] {
+                let a = Vec3::new(h * sx, i * sy, i * sz);
+                let b = Vec3::new(i * sx, h * sy, i * sz);
+                let c = Vec3::new(i * sx, i * sy, h * sz);
+                let out = Vec3::new(sx, sy, sz);
+                if (b - a).cross(c - a).dot(out) > 0.0 {
+                    quad(a, b, c, c);
+                } else {
+                    quad(a, c, b, b);
+                }
+            }
+        }
+    }
+    (v, idx)
+}
+
 /// A flat quad on the XY plane, used for sprites and the blob shadow.
 pub fn unit_quad() -> (Vec<PartVertex>, Vec<u16>) {
     let verts = vec![
@@ -770,6 +1055,27 @@ pub enum PartLook {
     Webbing,
     Hard,
     Boots,
+}
+
+/// The mesh each body part is drawn as.
+///
+/// Limbs and the neck are capsules, the head and helmet are spheres, the torso
+/// and the armour are bevelled boxes. Nothing here is a plain cube any more
+/// except the pouches, which are small enough that it would be wasted
+/// geometry.
+pub fn part_shape(part: Part) -> PartShape {
+    match part {
+        Part::ArmUpperL | Part::ArmLowerL | Part::ArmUpperR | Part::ArmLowerR
+        | Part::LegUpperL | Part::LegLowerL | Part::LegUpperR | Part::LegLowerR
+        | Part::Neck => PartShape::Capsule,
+        Part::Head | Part::Helmet => PartShape::Sphere,
+        Part::GloveL | Part::GloveR | Part::KneeL | Part::KneeR => PartShape::Capsule,
+        // Wider than they are tall, so a capsule would be a squashed ball.
+        Part::ShoulderL | Part::ShoulderR => PartShape::Sphere,
+        Part::Torso | Part::Hips | Part::Vest | Part::Chest | Part::Pack
+        | Part::BootL | Part::BootR | Part::Holster | Part::HelmetBrim => PartShape::Bevel,
+        Part::PouchL | Part::PouchR => PartShape::Cube,
+    }
 }
 
 pub fn part_look(part: Part) -> PartLook {
@@ -1110,15 +1416,33 @@ pub struct WeaponPart {
     /// Euler XYZ in radians, applied about the part's own centre.
     pub rot: Vec3,
     pub mat: Mat,
+    /// Which mesh to draw it as. Barrels, tubes and optics are round; the
+    /// receiver and the furniture are bevelled boxes.
+    pub shape: PartShape,
 }
 
 const fn wp(x: f32, y: f32, z: f32, sx: f32, sy: f32, sz: f32, mat: Mat) -> WeaponPart {
-    WeaponPart { offset: Vec3::new(x, y, z), size: Vec3::new(sx, sy, sz), rot: Vec3::ZERO, mat }
+    WeaponPart { offset: Vec3::new(x, y, z), size: Vec3::new(sx, sy, sz), rot: Vec3::ZERO,
+                 mat, shape: PartShape::Bevel }
+}
+
+/// A round part: barrels, tubes, optics, cylinders. The mesh runs along Y, so
+/// anything lying down the bore is rotated a quarter turn about X and its
+/// height becomes its length.
+const fn wpc(x: f32, y: f32, z: f32, dia: f32, len: f32, mat: Mat) -> WeaponPart {
+    WeaponPart {
+        offset: Vec3::new(x, y, z),
+        size: Vec3::new(dia, len, dia),
+        rot: Vec3::new(std::f32::consts::FRAC_PI_2, 0.0, 0.0),
+        mat,
+        shape: PartShape::Cylinder,
+    }
 }
 
 /// The same, tilted about X (the usual case: rake and cant).
 const fn wpx(x: f32, y: f32, z: f32, sx: f32, sy: f32, sz: f32, rx: f32, mat: Mat) -> WeaponPart {
-    WeaponPart { offset: Vec3::new(x, y, z), size: Vec3::new(sx, sy, sz), rot: Vec3::new(rx, 0.0, 0.0), mat }
+    WeaponPart { offset: Vec3::new(x, y, z), size: Vec3::new(sx, sy, sz),
+                 rot: Vec3::new(rx, 0.0, 0.0), mat, shape: PartShape::Bevel }
 }
 
 /// A weapon silhouette, plus the three points anything else needs from it:
@@ -1156,10 +1480,10 @@ const RIFLE: [WeaponPart; 27] = [
     wp(0.026, 0.006, -0.31, 0.006, 0.030, 0.20, MetalRust),     // vent slots, right
     wp(-0.026, 0.006, -0.31, 0.006, 0.030, 0.20, MetalRust),    // vent slots, left
     wp(0.0, -0.020, -0.31, 0.030, 0.008, 0.20, MetalRust),      // vent slots, under
-    wp(0.0, 0.006, -0.49, 0.019, 0.019, 0.20, PipeMetal),       // barrel
-    wp(0.0, 0.006, -0.615, 0.029, 0.029, 0.055, MetalRust),     // muzzle brake
-    wp(0.0, 0.006, -0.632, 0.033, 0.033, 0.012, MetalPanel),    // brake port ring
-    wp(0.0, 0.032, -0.43, 0.029, 0.030, 0.048, PipeMetal),      // gas block
+    wpc(0.0, 0.006, -0.49, 0.019, 0.20, PipeMetal),             // barrel
+    wpc(0.0, 0.006, -0.615, 0.029, 0.055, MetalRust),           // muzzle brake
+    wpc(0.0, 0.006, -0.632, 0.033, 0.012, MetalPanel),          // brake port ring
+    wpc(0.0, 0.032, -0.43, 0.030, 0.048, PipeMetal),            // gas block
     wp(0.0, 0.051, -0.17, 0.030, 0.014, 0.40, MetalPlateDiamond), // top rail
     wp(0.0, 0.076, 0.02, 0.026, 0.030, 0.032, MetalPanel),      // rear sight
     wp(0.0, 0.088, 0.02, 0.030, 0.008, 0.026, MetalRust),       // rear aperture ring
@@ -1173,7 +1497,7 @@ const RIFLE: [WeaponPart; 27] = [
     wpx(0.0, -0.204, 0.038, 0.040, 0.018, 0.070, -0.30, MetalRust),   // magazine floorplate
     wpx(0.0, -0.112, 0.088, 0.040, 0.150, 0.052, 0.34, Rubber), // pistol grip
     wp(0.0, -0.056, 0.048, 0.030, 0.010, 0.052, MetalPanel),    // trigger guard
-    wp(0.0, 0.014, 0.145, 0.031, 0.031, 0.14, PipeMetal),       // buffer tube
+    wpc(0.0, 0.014, 0.145, 0.031, 0.14, PipeMetal),             // buffer tube
     wp(0.0, 0.008, 0.215, 0.040, 0.070, 0.15, MetalPanel),      // stock
     wp(0.0, 0.008, 0.292, 0.044, 0.082, 0.020, Tire),           // butt pad
 ];
@@ -1186,12 +1510,12 @@ const BULLPUP: [WeaponPart; 20] = [
     wp(0.0, 0.010, -0.24, 0.048, 0.056, 0.20, MetalPanel),      // handguard
     wp(0.024, 0.010, -0.24, 0.006, 0.028, 0.17, MetalRust),     // vents, right
     wp(-0.024, 0.010, -0.24, 0.006, 0.028, 0.17, MetalRust),    // vents, left
-    wp(0.0, 0.010, -0.41, 0.019, 0.019, 0.17, PipeMetal),       // barrel
-    wp(0.0, 0.010, -0.515, 0.027, 0.027, 0.05, MetalRust),      // flash hider
+    wpc(0.0, 0.010, -0.41, 0.019, 0.17, PipeMetal),             // barrel
+    wpc(0.0, 0.010, -0.515, 0.027, 0.05, MetalRust),            // flash hider
     wp(0.0, 0.058, -0.10, 0.028, 0.014, 0.44, MetalPlateDiamond), // rail
-    wp(0.0, 0.086, -0.06, 0.048, 0.044, 0.16, MetalPanel),      // optic body
-    wp(0.0, 0.086, -0.145, 0.052, 0.052, 0.022, ControlPanel),  // objective
-    wp(0.0, 0.086, 0.028, 0.046, 0.046, 0.020, Glass),          // eyepiece
+    wpc(0.0, 0.086, -0.06, 0.046, 0.16, MetalPanel),            // optic body
+    wpc(0.0, 0.086, -0.145, 0.052, 0.022, ControlPanel),        // objective
+    wpc(0.0, 0.086, 0.028, 0.046, 0.020, Glass),                // eyepiece
     wp(0.0, 0.114, -0.06, 0.020, 0.014, 0.10, MetalRust),       // optic mount rail
     wpx(0.0, -0.108, 0.140, 0.040, 0.100, 0.068, -0.08, MetalRust), // magazine, upper
     wpx(0.0, -0.178, 0.168, 0.038, 0.080, 0.064, -0.26, MetalRust), // magazine, curve
@@ -1210,8 +1534,8 @@ const SMG: [WeaponPart; 19] = [
     wp(0.0, 0.012, -0.235, 0.036, 0.040, 0.10, MetalPanel),     // barrel shroud
     wp(0.020, 0.012, -0.235, 0.006, 0.022, 0.085, MetalRust),   // shroud vents
     wp(-0.020, 0.012, -0.235, 0.006, 0.022, 0.085, MetalRust),
-    wp(0.0, 0.012, -0.315, 0.017, 0.017, 0.09, PipeMetal),      // barrel
-    wp(0.0, 0.012, -0.360, 0.024, 0.024, 0.030, MetalRust),     // compensator
+    wpc(0.0, 0.012, -0.315, 0.017, 0.09, PipeMetal),            // barrel
+    wpc(0.0, 0.012, -0.360, 0.024, 0.030, MetalRust),           // compensator
     wp(0.0, 0.048, -0.10, 0.026, 0.013, 0.28, MetalPlateDiamond), // rail
     wp(0.0, 0.070, -0.005, 0.024, 0.028, 0.028, MetalPanel),    // rear sight
     wp(0.0, 0.066, -0.245, 0.013, 0.030, 0.018, MetalPanel),    // front sight
@@ -1222,7 +1546,7 @@ const SMG: [WeaponPart; 19] = [
     wp(0.0, -0.050, 0.030, 0.028, 0.010, 0.048, MetalPanel),    // trigger guard
     wpx(0.0, -0.030, -0.175, 0.030, 0.090, 0.042, -0.22, Rubber), // foregrip
     wp(0.024, 0.030, 0.02, 0.010, 0.026, 0.075, MetalRust),     // ejection port
-    wp(0.0, 0.014, 0.115, 0.026, 0.026, 0.09, PipeMetal),       // stock strut
+    wpc(0.0, 0.014, 0.115, 0.026, 0.09, PipeMetal),             // stock strut
     wp(0.0, 0.012, 0.185, 0.044, 0.070, 0.024, Tire),           // butt plate
 ];
 
@@ -1230,8 +1554,8 @@ const SMG: [WeaponPart; 19] = [
 const SHOTGUN: [WeaponPart; 17] = [
     wp(0.0, 0.000, -0.05, 0.052, 0.078, 0.26, MetalPanel),      // receiver
     wp(0.0, 0.038, -0.05, 0.046, 0.014, 0.25, MetalRust),       // receiver top
-    wp(0.0, 0.022, -0.36, 0.032, 0.032, 0.38, PipeMetal),       // barrel
-    wp(0.0, -0.026, -0.32, 0.028, 0.028, 0.30, MetalPanel),     // magazine tube
+    wpc(0.0, 0.022, -0.36, 0.032, 0.38, PipeMetal),             // barrel
+    wpc(0.0, -0.026, -0.32, 0.028, 0.30, MetalPanel),           // magazine tube
     wp(0.0, -0.002, -0.30, 0.014, 0.026, 0.26, MetalRust),      // barrel/tube web
     wp(0.0, -0.024, -0.235, 0.058, 0.052, 0.13, WoodPlank),     // pump
     wp(0.0, -0.024, -0.235, 0.062, 0.014, 0.115, MetalRust),    // pump grooves
@@ -1250,22 +1574,22 @@ const SHOTGUN: [WeaponPart; 17] = [
 // Bolt rifle: long heavy barrel, big glass on rings, bipod, cheek riser.
 const SNIPER: [WeaponPart; 22] = [
     wp(0.0, 0.006, -0.04, 0.048, 0.070, 0.34, MetalPanel),      // action
-    wp(0.0, 0.006, -0.40, 0.023, 0.023, 0.40, PipeMetal),       // barrel
-    wp(0.0, 0.006, -0.30, 0.028, 0.028, 0.18, MetalPanel),      // barrel flutes
-    wp(0.0, 0.006, -0.635, 0.032, 0.032, 0.07, MetalRust),      // muzzle brake
-    wp(0.0, 0.006, -0.668, 0.036, 0.036, 0.010, MetalPanel),    // brake ring
+    wpc(0.0, 0.006, -0.40, 0.023, 0.40, PipeMetal),             // barrel
+    wpc(0.0, 0.006, -0.30, 0.028, 0.18, MetalPanel),            // barrel flutes
+    wpc(0.0, 0.006, -0.635, 0.032, 0.07, MetalRust),            // muzzle brake
+    wpc(0.0, 0.006, -0.668, 0.036, 0.010, MetalPanel),          // brake ring
     wp(0.0, 0.048, -0.10, 0.030, 0.014, 0.34, MetalPlateDiamond), // rail
-    wp(0.0, 0.098, -0.10, 0.052, 0.052, 0.30, MetalPanel),      // scope tube
-    wp(0.0, 0.098, -0.265, 0.062, 0.062, 0.045, ControlPanel),  // objective bell
-    wp(0.0, 0.098, -0.292, 0.066, 0.066, 0.012, MetalRust),     // sunshade lip
-    wp(0.0, 0.098, 0.058, 0.056, 0.056, 0.030, Glass),          // eyepiece
-    wp(0.0, 0.098, 0.078, 0.060, 0.060, 0.012, Rubber),         // eye cup
-    wp(0.0, 0.098, -0.13, 0.058, 0.058, 0.028, MetalRust),      // elevation turret
+    wpc(0.0, 0.098, -0.10, 0.052, 0.30, MetalPanel),            // scope tube
+    wpc(0.0, 0.098, -0.265, 0.062, 0.045, ControlPanel),        // objective bell
+    wpc(0.0, 0.098, -0.292, 0.066, 0.012, MetalRust),           // sunshade lip
+    wpc(0.0, 0.098, 0.058, 0.056, 0.030, Glass),                // eyepiece
+    wpc(0.0, 0.098, 0.078, 0.060, 0.012, Rubber),               // eye cup
+    wpc(0.0, 0.098, -0.13, 0.058, 0.028, MetalRust),            // elevation turret
     wp(0.030, 0.098, -0.13, 0.030, 0.040, 0.026, MetalRust),    // windage turret
-    wp(0.0, 0.074, -0.16, 0.026, 0.036, 0.026, MetalPanel),     // front ring
-    wp(0.0, 0.074, -0.03, 0.026, 0.036, 0.026, MetalPanel),     // rear ring
+    wpc(0.0, 0.074, -0.16, 0.030, 0.030, MetalPanel),           // front ring
+    wpc(0.0, 0.074, -0.03, 0.030, 0.030, MetalPanel),           // rear ring
     wp(0.030, 0.014, 0.05, 0.030, 0.016, 0.016, MetalPlateDiamond), // bolt handle
-    wp(0.044, 0.014, 0.05, 0.016, 0.024, 0.024, MetalRust),     // bolt knob
+    wpc(0.044, 0.014, 0.05, 0.022, 0.022, MetalRust),           // bolt knob
     wpx(0.0, -0.118, 0.005, 0.036, 0.130, 0.062, -0.14, MetalRust), // magazine
     wpx(0.0, -0.106, 0.095, 0.042, 0.140, 0.052, 0.32, Rubber), // grip
     wp(0.0, -0.052, 0.055, 0.028, 0.010, 0.050, MetalPanel),    // trigger guard
@@ -1277,15 +1601,15 @@ const SNIPER: [WeaponPart; 22] = [
 const LMG: [WeaponPart; 20] = [
     wp(0.0, 0.010, -0.05, 0.062, 0.098, 0.36, MetalPanel),      // receiver
     wp(0.0, 0.052, -0.05, 0.054, 0.016, 0.34, MetalRust),       // receiver top
-    wp(0.0, 0.010, -0.40, 0.026, 0.026, 0.36, PipeMetal),       // barrel
-    wp(0.0, 0.010, -0.605, 0.036, 0.036, 0.06, MetalRust),      // flash hider
+    wpc(0.0, 0.010, -0.40, 0.026, 0.36, PipeMetal),             // barrel
+    wpc(0.0, 0.010, -0.605, 0.036, 0.06, MetalRust),            // flash hider
     wp(0.0, 0.048, -0.34, 0.034, 0.048, 0.20, MetalPlateDiamond), // heat shield
     wp(0.024, 0.030, -0.34, 0.008, 0.030, 0.18, MetalRust),     // shield vents
     wp(-0.024, 0.030, -0.34, 0.008, 0.030, 0.18, MetalRust),
     wp(0.0, 0.078, 0.02, 0.028, 0.030, 0.032, MetalPanel),      // rear sight
     wp(0.0, 0.074, -0.44, 0.014, 0.040, 0.020, MetalPanel),     // front post
     wp(0.0, 0.090, -0.44, 0.028, 0.010, 0.016, MetalPanel),     // front hood
-    wp(0.0, 0.084, -0.16, 0.028, 0.026, 0.16, PipeMetal),       // carry handle
+    wpc(0.0, 0.084, -0.16, 0.027, 0.16, PipeMetal),             // carry handle
     wp(0.0, -0.128, -0.02, 0.098, 0.150, 0.170, MetalRust),     // ammunition box
     wp(0.0, -0.128, -0.108, 0.086, 0.120, 0.010, HazardStripe), // box latch
     wp(0.0, -0.052, -0.02, 0.040, 0.030, 0.060, MetalPlateDiamond), // feed chute
@@ -1305,7 +1629,7 @@ const PISTOL_SMALL: [WeaponPart; 11] = [
     wp(-0.022, 0.028, -0.010, 0.006, 0.030, 0.045, MetalRust),
     wp(0.0, 0.044, -0.155, 0.012, 0.016, 0.014, MetalRust),     // front sight
     wp(0.0, 0.046, 0.005, 0.024, 0.018, 0.016, MetalRust),      // rear sight
-    wp(0.0, 0.008, -0.170, 0.014, 0.014, 0.030, PipeMetal),     // muzzle
+    wpc(0.0, 0.008, -0.170, 0.014, 0.030, PipeMetal),           // muzzle
     wp(0.0, -0.005, -0.030, 0.030, 0.030, 0.110, MetalPanel),   // frame
     wp(0.0, -0.022, -0.090, 0.026, 0.014, 0.060, MetalPlateDiamond), // accessory rail
     wpx(0.0, -0.088, 0.030, 0.032, 0.140, 0.048, 0.24, Rubber), // grip
@@ -1314,14 +1638,14 @@ const PISTOL_SMALL: [WeaponPart; 11] = [
 
 // Heavy revolver.
 const PISTOL_HEAVY: [WeaponPart; 11] = [
-    wp(0.0, 0.024, -0.150, 0.024, 0.026, 0.170, PipeMetal),     // barrel
+    wpc(0.0, 0.024, -0.150, 0.025, 0.170, PipeMetal),           // barrel
     wp(0.0, 0.046, -0.150, 0.020, 0.016, 0.165, MetalPlateDiamond), // top rib
     wp(0.0, -0.002, -0.150, 0.022, 0.024, 0.150, MetalPanel),   // ejector shroud
-    wp(0.0, 0.020, -0.030, 0.058, 0.058, 0.070, MetalRust),     // cylinder
+    wpc(0.0, 0.020, -0.030, 0.058, 0.070, MetalRust),           // cylinder
     wp(0.0, 0.020, -0.030, 0.062, 0.030, 0.060, MetalPanel),    // cylinder flutes
     wp(0.0, 0.022, 0.030, 0.030, 0.052, 0.075, MetalPanel),     // frame
     wp(0.0, 0.056, 0.052, 0.020, 0.024, 0.026, MetalRust),      // hammer
-    wp(0.0, 0.020, 0.006, 0.016, 0.016, 0.048, MetalPlateDiamond), // cylinder pin
+    wpc(0.0, 0.020, 0.006, 0.016, 0.048, MetalPlateDiamond),    // cylinder pin
     wpx(0.0, -0.078, 0.070, 0.036, 0.145, 0.058, 0.30, WoodPlank), // grip
     wp(0.0, -0.030, 0.020, 0.024, 0.010, 0.050, MetalPanel),    // trigger guard
     wp(0.0, 0.050, -0.225, 0.012, 0.018, 0.014, MetalRust),     // front sight
@@ -1343,7 +1667,7 @@ const SPADE: [WeaponPart; 6] = [
     wp(0.0, 0.000, -0.300, 0.090, 0.014, 0.045, MetalPlateDiamond), // blade edge
     wp(0.0, 0.010, -0.235, 0.030, 0.014, 0.110, MetalPanel),    // blade spine
     wp(0.0, 0.000, -0.165, 0.040, 0.030, 0.055, MetalPanel),    // socket
-    wp(0.0, 0.000, -0.040, 0.024, 0.024, 0.210, WoodPlank),     // shaft
+    wpc(0.0, 0.000, -0.040, 0.024, 0.210, WoodPlank),           // shaft
     wp(0.0, 0.000, 0.075, 0.048, 0.026, 0.030, Rubber),         // grip
 ];
 
@@ -1445,9 +1769,21 @@ pub fn weapon_parts(shape: ModelShape) -> &'static [WeaponPart] {
 /// rather than wrapping the whole thing, so a canted magazine on a long
 /// weapon comes out longer rather than sheared.
 pub fn weapon_part_matrix(base: Mat4, model_scale: Vec3, part: &WeaponPart) -> Mat4 {
+    // A round part's mesh runs along Y and is turned a quarter circle to lie
+    // down the bore, so the axis that should follow the weapon's length scale
+    // is its Y, not its Z. Scaling in the part's own frame after the rotation
+    // is what keeps a long rifle's barrel long rather than merely thick.
+    let size = if matches!(part.shape, PartShape::Cylinder | PartShape::Cone)
+        && part.rot.x.abs() > 1.0
+    {
+        Vec3::new(part.size.x * model_scale.x, part.size.y * model_scale.z,
+                  part.size.z * model_scale.y)
+    } else {
+        part.size * model_scale
+    };
     base * Mat4::from_translation(part.offset * model_scale)
         * Mat4::from_euler(glam::EulerRot::XYZ, part.rot.x, part.rot.y, part.rot.z)
-        * Mat4::from_scale(part.size * model_scale)
+        * Mat4::from_scale(size)
 }
 
 /// A scale applied to a weapon's model so heavier weapons look heavier.
