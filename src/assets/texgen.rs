@@ -519,6 +519,47 @@ fn gen_foliage(p: &mut Painter, tint: [u8; 3], cutout: bool, seed: u32) {
     if !cutout { p.grime(0.3, seed); }
 }
 
+/// Ground cover: turf with bare earth showing through it.
+///
+/// Grass shared a generator with tree canopy, which is a mass of leaves seen
+/// from outside and reads, when you lay it flat over eighty metres, as one
+/// saturated green carpet. What ground looks like is grass in some places and
+/// soil in others, and the boundary between them is most of the visual
+/// information a lawn has.
+fn gen_grass(p: &mut Painter, tint: [u8; 3], soil: [u8; 3], seed: u32) {
+    let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
+    let earth = [soil[0] as f32 / 255.0, soil[1] as f32 / 255.0, soil[2] as f32 / 255.0];
+    p.shade_rgb(|u, v| {
+        let patch = fbm(u * 2.0, v * 2.0, 2, 3, seed ^ 0x4D);
+        let clump = fbm(u * 6.0, v * 6.0, 6, 4, seed);
+        let blade = ridged(u * 44.0, v * 44.0, 44, 3, seed ^ 0x77);
+        let fine = vnoise(u * 120.0, v * 120.0, 120, seed ^ 0x11);
+
+        // Where the slow field dips, the turf is worn through.
+        let bare = smoothstep(0.60, 0.34, patch);
+
+        let lum = 0.50 + clump * 0.52 + blade * 0.24 + (fine - 0.5) * 0.20;
+        // Sunlit tips yellow, the shade under them blue-green: the same trick
+        // the canopy uses, at a scale that suits a lawn.
+        let warm = (clump - 0.55).max(0.0) * 1.1;
+        let green = [
+            base[0] * lum * (1.0 + warm * 0.60),
+            base[1] * lum * (1.0 + warm * 0.10),
+            base[2] * lum * (1.0 - warm * 0.30),
+        ];
+        let dirt_lum = 0.72 + (fine - 0.5) * 0.34 + blade * 0.12;
+        let dirt = [earth[0] * dirt_lum, earth[1] * dirt_lum, earth[2] * dirt_lum];
+
+        let k = bare * 0.80;
+        ([
+            green[0] + (dirt[0] - green[0]) * k,
+            green[1] + (dirt[1] - green[1]) * k,
+            green[2] + (dirt[2] - green[2]) * k,
+        ], 1.0)
+    });
+    p.grime(0.35, seed);
+}
+
 /// Woven fabric or sandbags.
 fn gen_woven(p: &mut Painter, tint: [u8; 3], threads: f32, lumpy: f32, seed: u32) {
     let tx = p.texel;
@@ -1065,8 +1106,8 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         SandRock => gen_granular(&mut p, tint, 22.0, 0.20, seed),
         Dirt => gen_granular(&mut p, tint, 21.0, 0.22, seed),
         Gravel => gen_granular(&mut p, tint, 30.0, 0.32, seed),
-        Grass => gen_foliage(&mut p, tint, false, seed),
-        JungleFloor => gen_foliage(&mut p, tint, false, seed ^ 0x11),
+        Grass => gen_grass(&mut p, tint, [118, 96, 62], seed),
+        JungleFloor => gen_grass(&mut p, tint, [92, 74, 48], seed ^ 0x11),
         Snow => gen_drift(&mut p, tint, 4.0, 0.42, 0.16, seed),
         SnowRock => gen_granular(&mut p, tint, 22.0, 0.18, seed),
         Asphalt => gen_granular(&mut p, tint, 30.0, 0.14, seed),
