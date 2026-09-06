@@ -1244,7 +1244,10 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         Corrugated => gen_corrugated(&mut p, tint, 12.0, seed),
         Grating => gen_grid(&mut p, tint, 7.0, 0.20, true, seed),
         HullPainted => gen_panel(&mut p, tint, 2.0, true, 0.35, seed),
-        PipeMetal => gen_corrugated(&mut p, tint, 3.0, seed),
+        // Pipes are columns, and the corrugated generator's ribs run round a
+        // column rather than along it, so pipework came out fluted. Bands and
+        // a weld seam read as couplings, which is what a pipe run has.
+        PipeMetal => gen_barrel(&mut p, tint, 0.30, seed ^ 0x3D),
         ShippingRed | ShippingBlue | ShippingGreen => gen_corrugated(&mut p, tint, 9.0, seed),
         Sand => gen_drift(&mut p, tint, 7.0, 0.55, 0.0, seed),
         SandRock => gen_granular(&mut p, tint, 22.0, 0.20, seed),
