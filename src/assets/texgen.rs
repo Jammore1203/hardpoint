@@ -519,6 +519,44 @@ fn gen_foliage(p: &mut Painter, tint: [u8; 3], cutout: bool, seed: u32) {
     if !cutout { p.grime(0.3, seed); }
 }
 
+/// A drum: smooth painted steel with two rolling hoops round it.
+///
+/// Barrels used the corrugated generator, whose ribs run along u -- and on a
+/// column u wraps round the circumference, so every drum in the game was
+/// fluted vertically like a Doric capital. A drum has two horizontal rolling
+/// hoops and a chime at each end, and is otherwise smooth.
+///
+/// `rust` runs from a painted drum to one that has been outside for a decade.
+fn gen_barrel(p: &mut Painter, tint: [u8; 3], rust: f32, seed: u32) {
+    p.shade_relief(tint, 0.70, |u, v| {
+        let band = |centre: f32, half: f32| -> f32 {
+            let d = (v - centre).abs();
+            1.0 - smoothstep(half * 0.6, half, d)
+        };
+        // Two rolling hoops, and a chime at the top and bottom of the drum.
+        let hoop = band(0.33, 0.045).max(band(0.67, 0.045));
+        let chime = band(0.02, 0.030).max(band(0.98, 0.030));
+        // A vertical weld seam, once round.
+        let seam = 1.0 - smoothstep(0.006, 0.014, (u - 0.5).abs());
+
+        let sheet = fbm(u * 5.0, v * 9.0, 5, 3, seed ^ 0x2A) - 0.5;
+        let grain = vnoise(u * 100.0, v * 100.0, 100, seed) - 0.5;
+
+        // Rust: patches that start under the hoops and run down the drum.
+        let patch = fbm(u * 4.0, v * 2.0, 4, 4, seed ^ 0x51);
+        let run = fbm(u * 9.0, v * 1.2, 9, 3, seed ^ 0x77);
+        let corrosion = (smoothstep(0.52, 0.86, patch) * 0.7
+            + smoothstep(0.58, 0.92, run) * 0.5) * rust;
+
+        let height = hoop * 0.85 + chime * 0.70 + seam * 0.22
+            + sheet * 0.18 + grain * 0.06 - corrosion * 0.35;
+        let albedo = 0.90 + hoop * 0.14 + chime * 0.10 + sheet * 0.12
+            + grain * 0.06 - corrosion * 0.32;
+        (albedo, height)
+    });
+    p.grime(0.35 + rust * 0.5, seed);
+}
+
 /// A stack of filled sacks, not a bolt of cloth.
 ///
 /// Sandbags were the plain woven generator, which gives the weave and nothing
@@ -1234,7 +1272,8 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         WindowLit => gen_lit(&mut p, tint, 3.0, false, seed),
         Screen => gen_lit(&mut p, tint, 1.0, true, seed),
         ControlPanel => gen_control_panel(&mut p, tint, seed),
-        Barrel | BarrelRust => gen_corrugated(&mut p, tint, 4.0, seed),
+        Barrel => gen_barrel(&mut p, tint, 0.18, seed),
+        BarrelRust => gen_barrel(&mut p, tint, 0.85, seed),
         Tire => gen_tread(&mut p, tint, seed),
         Rubber => gen_granular(&mut p, tint, 34.0, 0.07, seed),
         HazardStripe => gen_stripes(&mut p, tint, [40, 38, 36], 6.0, seed),
