@@ -370,8 +370,12 @@ fn face_normal(world_pos: vec3<f32>) -> vec3<f32> {
     return select(-n, n, dot(n, v) >= 0.0);
 }
 
-fn detail_modulation(uv: vec2<f32>, world_pos: vec3<f32>) -> f32 {
-    let strength = G.grade.x;
+fn detail_modulation(uv: vec2<f32>, world_pos: vec3<f32>, gloss: f32) -> f32 {
+    // Polished surfaces do not get it. The detail tile is a gravel-grade
+    // noise, which is right for concrete and brick and wrong for glass, ice,
+    // marble and a rifle receiver -- all of which were being sprinkled with
+    // grit the moment the player walked up to them.
+    let strength = G.grade.x * (1.0 - clamp(gloss * 1.3, 0.0, 1.0));
     if (strength <= 0.001) { return 1.0; }
     let d = length(world_pos - G.camera_pos.xyz);
     // Out to thirty-four metres rather than twenty-two. The layer costs one
@@ -395,7 +399,7 @@ fn world_shade(uv_a: vec2<f32>, uv_c: vec2<f32>, color: vec4<f32>, layer: u32, w
         let t = G.time.x;
         let a = textureSample(world_tex, world_smp, uv + vec2<f32>(t * 0.014, t * 0.009), i32(layer));
         let b = textureSample(world_tex, world_smp, uv * 0.73 + vec2<f32>(t * -0.010, t * 0.017), i32(layer));
-        var wc = (a.rgb * 0.58 + b.rgb * 0.46) * color.rgb * detail_modulation(uv, world_pos);
+        var wc = (a.rgb * 0.58 + b.rgb * 0.46) * color.rgb * detail_modulation(uv, world_pos, gloss_of(layer));
         let wf = fog_amount(world_pos);
         // Water is flat geometry, so its highlight has to come from somewhere
         // else: perturb the face normal by the same two scrolling layers that
@@ -406,7 +410,7 @@ fn world_shade(uv_a: vec2<f32>, uv_c: vec2<f32>, color: vec4<f32>, layer: u32, w
         return vec4<f32>(grade(wc), 1.0);
     }
     var tex = textureSample(world_tex, world_smp, uv, i32(layer));
-    var c = tex.rgb * color.rgb * detail_modulation(uv, world_pos);
+    var c = tex.rgb * color.rgb * detail_modulation(uv, world_pos, gloss_of(layer));
     let f = fog_amount(world_pos);
     c = c + specular(face_normal(world_pos), world_pos, gloss_of(layer), color.rgb, f);
     c = mix(c, fog_color_at(world_pos), f);
