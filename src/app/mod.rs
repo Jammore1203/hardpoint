@@ -972,6 +972,17 @@ impl App {
             far: 500.0,
         };
 
+        // Capture harness: put the eye on a rail through the map instead of
+        // wherever the scripted player has walked into a wall. Looking at the
+        // lighting and the materials means being able to point the camera at
+        // them, and the autoplay bot spends most of a match facing masonry.
+        if std::env::var_os("HARDPOINT_TOUR").is_some() {
+            let (pos, yaw, pitch) = tour_camera(map, now);
+            self.camera.position = pos;
+            self.camera.yaw = yaw;
+            self.camera.pitch = pitch;
+        }
+
         let shadows = self.settings.render_settings().shadows;
         world_view::draw_players(&mut self.renderer, client, map, now as f32, shadows);
         world_view::draw_entities(&mut self.renderer, &self.world, now as f32);
@@ -1200,4 +1211,28 @@ impl ApplicationHandler for Launcher {
             app.window.request_redraw();
         }
     }
+}
+
+/// A camera on a slow circuit of the map's spawn points, for screenshots.
+///
+/// Dev-only, behind `HARDPOINT_TOUR`. Each stop holds for a few seconds at
+/// standing eye height, aimed at the middle of the playable bounds and
+/// drifting slightly, so consecutive captures of the same map frame the same
+/// places and two builds can be compared honestly.
+fn tour_camera(map: &crate::maps::MapData, now: f64) -> (Vec3, f32, f32) {
+    let centre = (map.bounds.min + map.bounds.max) * 0.5;
+    if map.spawns.is_empty() {
+        return (centre + Vec3::Y * 2.0, 0.0, 0.0);
+    }
+    const HOLD: f64 = 4.0;
+    let i = ((now / HOLD) as usize) % map.spawns.len();
+    let t = ((now / HOLD).fract()) as f32;
+    let at = map.spawns[i].pos + Vec3::Y * 1.62;
+    let target = Vec3::new(centre.x, at.y - 1.0, centre.z);
+    let d = target - at;
+    // A few degrees of drift either side of the aim, so a static scene still
+    // shows how its light behaves as the view moves.
+    let yaw = (-d.x).atan2(-d.z) + (t - 0.5) * 0.42;
+    let pitch = (d.y / d.length().max(0.001)).asin();
+    (at, yaw, pitch)
 }

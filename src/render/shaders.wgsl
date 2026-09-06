@@ -75,7 +75,14 @@ fn fog_amount(world_pos: vec3<f32>) -> f32 {
     let start = G.fog_color.w;
     let end = G.fog_params.x;
     var t = clamp((d - start) / max(end - start, 0.001), 0.0, 1.0);
-    t = t * t;
+    // Squaring this - which is what it used to do - keeps the haze at a
+    // quarter strength through the whole middle of the range, so a building
+    // eighty metres away came back as crisp and as saturated as the wall in
+    // front of you and the ground ran to a hard line against the sky. This
+    // curve still eases in from nothing, so near geometry is untouched, but
+    // it is two thirds of the way to solid by three quarters of the distance,
+    // which is what aerial perspective actually looks like.
+    t = t * t * (2.0 - t);
 
     // Height fog: haze pools in the low ground and thins with altitude, which
     // is what separates a distant rooftop from the street it stands over. The
@@ -94,6 +101,24 @@ fn fog_amount(world_pos: vec3<f32>) -> f32 {
 // good enough stand-in, warmed a little.
 fn G_sun_color_or_white() -> vec3<f32> {
     return mix(vec3<f32>(1.0, 0.97, 0.90), vec3<f32>(1.0), 0.35);
+}
+
+// Haze is not one colour. Looking into the sun through it, the light that
+// reaches you is the light it scattered out of the beam, so it glows; looking
+// away, it is the flat map colour. One power term buys the whole effect, and
+// it is the difference between fog that reads as atmosphere and fog that
+// reads as a grey card someone put in front of the far half of the map.
+//
+// `dir` points from the eye out toward whatever is being fogged.
+fn fog_color_along(dir: vec3<f32>) -> vec3<f32> {
+    let sun_dot = clamp(dot(dir, G.sun.xyz), 0.0, 1.0);
+    let clear = 1.0 - G.sun.w * 0.65;
+    let glow = (pow(sun_dot, 8.0) * 0.30 + pow(sun_dot, 2.0) * 0.07) * clear;
+    return G.fog_color.rgb + G_sun_color_or_white() * glow;
+}
+
+fn fog_color_at(world_pos: vec3<f32>) -> vec3<f32> {
+    return fog_color_along(normalize(world_pos - G.camera_pos.xyz));
 }
 
 // Gloss lives four to a row because a uniform array of scalars is padded to
@@ -242,7 +267,7 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
     // Fully fogged geometry is fog_color, so the sky must be exactly that at
     // the horizon or the world ends on a visible seam.
     let haze = 1.0 - smoothstep(0.0, 0.10, dir.y);
-    c = mix(c, G.fog_color.rgb, haze);
+    c = mix(c, fog_color_along(dir), haze);
     // A few gentle bands, which reads as haze rather than a flat wash.
     c += sin(up_amt * 26.0) * 0.006;
     return vec4<f32>(grade(c), 1.0);
@@ -328,14 +353,14 @@ fn world_shade(uv_a: vec2<f32>, uv_c: vec2<f32>, color: vec4<f32>, layer: u32, w
         // move the colour, and the sun's reflection travels with the swell.
         let wobble = vec3<f32>((a.r - 0.5) * 0.45, 1.0, (b.r - 0.5) * 0.45);
         wc = wc + specular(normalize(wobble), world_pos, gloss_of(layer), color.rgb, wf);
-        wc = mix(wc, G.fog_color.rgb, wf);
+        wc = mix(wc, fog_color_at(world_pos), wf);
         return vec4<f32>(grade(wc), 1.0);
     }
     var tex = textureSample(world_tex, world_smp, uv, i32(layer));
     var c = tex.rgb * color.rgb * detail_modulation(uv, world_pos);
     let f = fog_amount(world_pos);
     c = c + specular(face_normal(world_pos), world_pos, gloss_of(layer), color.rgb, f);
-    c = mix(c, G.fog_color.rgb, f);
+    c = mix(c, fog_color_at(world_pos), f);
     return vec4<f32>(grade(c), tex.a);
 }
 
@@ -431,7 +456,7 @@ fn fs_part(in: PartOut) -> @location(0) vec4<f32> {
     var c = tex.rgb * in.color.rgb;
     let f = fog_amount(in.world_pos);
     c = c + specular(normalize(in.normal), in.world_pos, gloss_of(in.layer), in.color.rgb, f);
-    c = mix(c, G.fog_color.rgb, f);
+    c = mix(c, fog_color_at(in.world_pos), f);
     if (tex.a * in.color.a < 0.5) { discard; }
     return vec4<f32>(grade(c), 1.0);
 }

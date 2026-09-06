@@ -14,17 +14,25 @@ use glam::Vec3;
 pub fn audit() -> i32 {
     let mut total = 0usize;
     let start = std::time::Instant::now();
-    println!("{:<11} {:>8} {:>7} {:>7} {:>6}  {}", "MAP", "BRUSHES", "DECOR", "NAV", "BUILD", "ISSUES");
+    println!("{:<11} {:>8} {:>7} {:>7} {:>6} {:>7} {:>8}  {}",
+             "MAP", "BRUSHES", "DECOR", "NAV", "BUILD", "BAKE", "TRIS", "ISSUES");
     for id in ALL_MAPS {
         let t = std::time::Instant::now();
         let m = id.build();
         let ms = t.elapsed().as_secs_f32() * 1000.0;
+        // The mesh bake is the other half of a map load and the half that
+        // grows every time the lighting gets better, so it is worth having in
+        // front of us next to the build.
+        let tb = std::time::Instant::now();
+        let mesh = crate::assets::meshgen::build_map_mesh(&m, crate::assets::meshgen::BakeQuality::Full);
+        let bake_ms = tb.elapsed().as_secs_f32() * 1000.0;
         let issues = m.validate();
         total += issues.len();
         let repair = if m.repairs == (0, 0) { String::new() }
                      else { format!("  [repaired {} spawn(s), {} pickup(s)]", m.repairs.0, m.repairs.1) };
-        println!("{:<11} {:>8} {:>7} {:>7} {:>5.1}ms  {}{}",
+        println!("{:<11} {:>8} {:>7} {:>7} {:>4.0}ms {:>5.0}ms {:>8}  {}{}",
                  m.name(), m.brushes.len(), m.decor.len(), m.nav.walkable_count(), ms,
+                 bake_ms, mesh.triangle_count,
                  if issues.is_empty() { "clean".to_string() } else { format!("{} PROBLEM(S)", issues.len()) }, repair);
         for i in &issues { println!("      - {}", i); }
     }

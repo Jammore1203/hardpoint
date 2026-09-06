@@ -225,6 +225,7 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
     // apron carries a couple of thousand samples, and the sun shadows and
     // corner occlusion that the bake already computes actually land somewhere.
     let env = &map.env;
+    let lights = gather_lights(map);
     let mut vertices: Vec<WorldVertex> = Vec::with_capacity(faces.len() * 9);
     // Which face each vertex came from, so the bake can be run over the flat
     // vertex array rather than nested inside the face loop.
@@ -285,6 +286,7 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
         let chunk = vertices.len().div_ceil(workers).max(1);
         let faces = &faces;
         let vertex_face = &vertex_face;
+        let lights = &lights[..];
         std::thread::scope(|s| {
             for (ci, slice) in vertices.chunks_mut(chunk).enumerate() {
                 let first = ci * chunk;
@@ -292,7 +294,7 @@ pub fn build_map_mesh(map: &MapData, quality: BakeQuality) -> MapMesh {
                     for (k, v) in slice.iter_mut().enumerate() {
                         let f = &faces[vertex_face[first + k] as usize];
                         let p = Vec3::from(v.pos);
-                        v.color = bake_light(map, env, p, f.normal, f.mat, f.light_scale, f.no_shadow, quality);
+                        v.color = bake_light(map, env, p, f.normal, f.mat, f.light_scale, f.no_shadow, quality, lights);
                     }
                 });
             }
@@ -462,6 +464,102 @@ fn side_uvs(corners: &[Vec3; 4], scale: f32) -> [[f32; 2]; 4] {
 }
 
 /// Computes the baked colour for one vertex.
+
+// ------------------------------------------------------------ baked lights
+
+/// A point light recovered from an emissive surface, for the vertex bake.
+///
+/// Interiors in this game were lit by exactly two things: the sun, which a
+/// roof stops dead, and a flat hemisphere ambient. A foundry with a roof on
+/// it therefore came back as one uniform murk from wall to wall, with the row
+/// of lit clerestory windows along the top contributing nothing but their own
+/// brightness. Every lightmapped game of this period solved that the same
+/// way, by treating the glowing surface as a light and baking what it spills.
+#[derive(Clone, Copy)]
+struct BakedLight {
+    pos: Vec3,
+    color: Vec3,
+    radius: f32,
+}
+
+/// The most lights any one map will bake. Sorted by strength first, so a map
+/// that overruns this loses its dimmest.
+const MAX_BAKED_LIGHTS: usize = 64;
+
+/// Emissive materials below this contribute a glow to their own surface but
+/// are too weak to light anything around them. Hazard striping is the case
+/// this excludes, and there are hundreds of metres of it.
+const LIGHT_THRESHOLD: f32 = 0.18;
+
+fn light_tint(mat: Mat) -> Vec3 {
+    match mat {
+        // Daylight through glass, slightly cool.
+        Mat::WindowLit => Vec3::new(0.86, 0.91, 1.00),
+        // A monitor.
+        Mat::Screen => Vec3::new(0.62, 0.78, 1.00),
+        // Instrument panels are amber in every industrial building ever built.
+        Mat::ControlPanel => Vec3::new(1.00, 0.78, 0.44),
+        _ => Vec3::ONE,
+    }
+}
+
+/// Turns every emissive brush in the map into one or more point lights.
+///
+/// A seven-metre window is not a point, and baking it as one puts a hot spot
+/// under its middle and nothing under its ends, so long panels are split
+/// along their length and the flux divided between the pieces. Each light is
+/// pushed off its own surface toward the middle of the map, which is where
+/// the room is: a window in an outside wall faces in.
+fn gather_lights(map: &MapData) -> Vec<BakedLight> {
+    let centre = (map.bounds.min + map.bounds.max) * 0.5;
+    let mut lights: Vec<BakedLight> = Vec::new();
+
+    for b in map.brushes.iter().chain(map.decor.iter()) {
+        if b.flags.contains(BrushFlags::NODRAW) { continue; }
+        let e = b.mat.emissive().max(b.top.emissive());
+        if e < LIGHT_THRESHOLD { continue; }
+
+        let size = b.aabb.max - b.aabb.min;
+        let mid = (b.aabb.min + b.aabb.max) * 0.5;
+        let dims = [size.x, size.y, size.z];
+        let thin = (0..3).min_by(|&i, &j| dims[i].total_cmp(&dims[j])).unwrap();
+        let long = (0..3).max_by(|&i, &j| dims[i].total_cmp(&dims[j])).unwrap();
+        if thin == long { continue; }
+
+        // Out of the surface, on whichever side the map is.
+        let mut out = Vec3::ZERO;
+        out[thin] = if centre[thin] >= mid[thin] { 1.0 } else { -1.0 };
+        let stand_off = dims[thin] * 0.5 + 0.45;
+
+        // Radius grows with brightness and with how much surface is glowing;
+        // a strip light and a shop window should not reach equally far.
+        let area = dims[long] * dims[3 - thin - long];
+        let radius = (5.5 + e * 13.0 + area.sqrt() * 1.6).clamp(5.0, 22.0);
+
+        let splits = ((dims[long] / 4.0).round() as usize).clamp(1, 4);
+        let tint = light_tint(if b.mat.emissive() >= b.top.emissive() { b.mat } else { b.top });
+        // Total flux is fixed, so splitting a panel does not brighten it.
+        let color = tint * e * 1.35 / splits as f32;
+
+        for i in 0..splits {
+            let t = (i as f32 + 0.5) / splits as f32 - 0.5;
+            let mut pos = mid + out * stand_off;
+            pos[long] += t * dims[long];
+            lights.push(BakedLight { pos, color, radius });
+        }
+    }
+
+    if lights.len() > MAX_BAKED_LIGHTS {
+        lights.sort_by(|a, b| {
+            let sa = a.color.max_element() * a.radius;
+            let sb = b.color.max_element() * b.radius;
+            sb.total_cmp(&sa)
+        });
+        lights.truncate(MAX_BAKED_LIGHTS);
+    }
+    lights
+}
+
 fn bake_light(
     map: &MapData,
     env: &Env,
@@ -471,6 +569,7 @@ fn bake_light(
     scale: f32,
     no_shadow: bool,
     quality: BakeQuality,
+    lights: &[BakedLight],
 ) -> [u8; 4] {
     // Sky occlusion: how much of the upper hemisphere this point can see.
     // Ambient used to be modulated by the same short-range occlusion term as
@@ -534,12 +633,59 @@ fn bake_light(
         b += env.ambient_ground[2] * bounce;
     }
 
+    // Emissive surfaces, as light.
+    //
+    // One shadow ray each, and only for the handful of lights whose radius
+    // actually reaches this vertex, so an indoor map pays for its windows and
+    // an open desert pays for nothing.
+    for l in lights {
+        let d = l.pos - p;
+        let dist_sq = d.length_squared();
+        if dist_sq >= l.radius * l.radius { continue; }
+        let dist = dist_sq.sqrt().max(0.08);
+        let dir = d / dist;
+        let ndl = dir.dot(n);
+        if ndl <= 0.0 { continue; }
+        // Linear-squared falloff to zero at the radius. Not physical, but a
+        // light that reaches its stated range and stops is a light that can
+        // be culled, and inverse square never stops.
+        let falloff = 1.0 - dist / l.radius;
+        let att = falloff * falloff * ndl;
+        if att < 0.002 { continue; }
+        if quality == BakeQuality::Full && !no_shadow {
+            let origin = p + n * 0.06;
+            if map.collision.trace_ray(origin, dir, dist - 0.12, TraceMask::Shot).hit {
+                continue;
+            }
+        }
+        r += l.color.x * att;
+        g += l.color.y * att;
+        b += l.color.z * att;
+    }
+
     if quality == BakeQuality::Full {
         let ao = ambient_occlusion(map, p, n);
         r *= ao;
         g *= ao;
         b *= ao;
     }
+
+    // Weathering.
+    //
+    // A hundred square metres of concrete lit by one sun and one sky comes
+    // back as a hundred square metres of exactly the same grey, and no amount
+    // of texture detail fixes it because the texture tiles every two metres
+    // and the eye reads the tile, not the surface. What the games of this era
+    // had that made large surfaces look large was a lightmap with grime baked
+    // into it, at a scale far bigger than any tile. This is that, for free:
+    // low-frequency world-space noise, keyed off position only, so adjacent
+    // faces agree along their shared edge and the patch runs across the join.
+    //
+    // Emissive materials are exempt below - a lit window is not dirty.
+    let w = weathering(p);
+    r *= w;
+    g *= w;
+    b *= w;
 
     let e = mat.emissive();
     if e > 0.0 {
@@ -559,6 +705,52 @@ fn bake_light(
         (b * 0.5 * 255.0).clamp(0.0, 255.0) as u8,
         255,
     ]
+}
+
+/// Deterministic hashed lattice noise in three dimensions.
+fn grime_hash(x: i32, y: i32, z: i32) -> f32 {
+    let mut h = (x as u32).wrapping_mul(0x8DA6_B343)
+        ^ (y as u32).wrapping_mul(0xD8163841)
+        ^ (z as u32).wrapping_mul(0xCB1A_B31F);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    h = h.wrapping_mul(0x2974_5C87);
+    h ^= h >> 15;
+    (h & 0xFF_FFFF) as f32 / 16_777_215.0
+}
+
+fn grime_noise(p: Vec3) -> f32 {
+    let f = p.floor();
+    let t = p - f;
+    let (xi, yi, zi) = (f.x as i32, f.y as i32, f.z as i32);
+    // Smoothstep weights, so the field has no lattice creases in it.
+    let s = t * t * (Vec3::splat(3.0) - 2.0 * t);
+    let mut acc = 0.0;
+    for dz in 0..2 {
+        let wz = if dz == 0 { 1.0 - s.z } else { s.z };
+        for dy in 0..2 {
+            let wy = if dy == 0 { 1.0 - s.y } else { s.y };
+            for dx in 0..2 {
+                let wx = if dx == 0 { 1.0 - s.x } else { s.x };
+                acc += grime_hash(xi + dx, yi + dy, zi + dz) * wx * wy * wz;
+            }
+        }
+    }
+    acc
+}
+
+/// A slow multiplier on baked light, between roughly 0.86 and 1.07, varying
+/// over metres rather than centimetres.
+///
+/// Two octaves is enough: the point is to break up the flatness of a large
+/// surface, not to draw anything the player can identify. The vertical axis
+/// is squashed so the pattern runs in bands down a wall the way water staining
+/// does, rather than in isotropic blobs.
+fn weathering(p: Vec3) -> f32 {
+    let q = Vec3::new(p.x, p.y * 0.55, p.z);
+    let n = grime_noise(q * 0.070) * 0.62 + grime_noise(q * 0.190 + Vec3::splat(11.3)) * 0.38;
+    0.83 + n * 0.26
 }
 
 /// How much of the sky this point can see, over a long range.
