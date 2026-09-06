@@ -64,7 +64,7 @@ const CLUSTER_SIZE: f32 = 18.0;
 /// Target edge length of one baked-lighting cell, in metres. Small enough that
 /// a shadow edge lands where it belongs, large enough that a level is still a
 /// few tens of thousands of vertices.
-const LIGHT_CELL: f32 = 2.2;
+const LIGHT_CELL: f32 = 1.7;
 /// Ceiling on the subdivision of any one face, so a stray enormous brush
 /// cannot turn a map load into a minute of ray tracing.
 const MAX_LIGHT_STEPS: usize = 48;
@@ -457,26 +457,66 @@ fn bake_light(
     no_shadow: bool,
     quality: BakeQuality,
 ) -> [u8; 4] {
+    // Sky occlusion: how much of the upper hemisphere this point can see.
+    // Ambient used to be modulated by the same short-range occlusion term as
+    // everything else, which darkens a surface uniformly; using a separate
+    // upward visibility for the sky part is what makes the underside of a
+    // catwalk read as shaded rather than merely dimmer.
+    let sky_vis = if quality == BakeQuality::Full {
+        sky_visibility(map, p, n)
+    } else {
+        1.0
+    };
+
     // Hemisphere ambient: sky above, bounced ground light below.
     let t = (n.y * 0.5 + 0.5).clamp(0.0, 1.0);
-    let mut r = env.ambient_ground[0] + (env.ambient_sky[0] - env.ambient_ground[0]) * t;
-    let mut g = env.ambient_ground[1] + (env.ambient_sky[1] - env.ambient_ground[1]) * t;
-    let mut b = env.ambient_ground[2] + (env.ambient_sky[2] - env.ambient_ground[2]) * t;
+    let sky_amt = t * sky_vis;
+    let mut r = env.ambient_ground[0] + (env.ambient_sky[0] - env.ambient_ground[0]) * sky_amt;
+    let mut g = env.ambient_ground[1] + (env.ambient_sky[1] - env.ambient_ground[1]) * sky_amt;
+    let mut b = env.ambient_ground[2] + (env.ambient_sky[2] - env.ambient_ground[2]) * sky_amt;
 
-    let ndotl = (-env.sun_dir).dot(n).max(0.0);
-    if ndotl > 0.0 && quality != BakeQuality::Flat && !no_shadow {
-        // Offset along the normal so a surface never shadows itself.
-        let origin = p + n * 0.06;
-        let hit = map.collision.trace_ray(origin, -env.sun_dir, 60.0, TraceMask::Shot);
-        if !hit.hit {
-            r += env.sun_color[0] * ndotl;
-            g += env.sun_color[1] * ndotl;
-            b += env.sun_color[2] * ndotl;
-        }
-    } else if ndotl > 0.0 {
-        r += env.sun_color[0] * ndotl;
-        g += env.sun_color[1] * ndotl;
-        b += env.sun_color[2] * ndotl;
+    let sun = -env.sun_dir;
+    let ndotl = sun.dot(n).max(0.0);
+    if ndotl > 0.0 {
+        // Soft shadows.
+        //
+        // One ray gives a hard edge quantised to the lighting cell size, which
+        // at a couple of metres is a staircase of light and dark squares. Four
+        // rays spread over a small cone cost four traces on the points that are
+        // lit at all, and turn that staircase into a penumbra a metre or so
+        // wide - which is about what a sun edge looks like, and hides the cell
+        // grid completely.
+        let visible = if quality == BakeQuality::Flat || no_shadow {
+            1.0
+        } else {
+            // A basis around the sun direction to jitter within.
+            let up = if sun.y.abs() > 0.9 { Vec3::Z } else { Vec3::Y };
+            let tangent = sun.cross(up).normalize_or_zero();
+            let bitangent = tangent.cross(sun);
+            const SPREAD: f32 = 0.055;
+            const OFFSETS: [(f32, f32); 4] = [
+                (0.0, 0.0), (0.94, 0.34), (-0.5, 0.87), (-0.5, -0.87),
+            ];
+            let origin = p + n * 0.06;
+            let mut open = 0.0f32;
+            for (ox, oy) in OFFSETS {
+                let d = (sun + tangent * (ox * SPREAD) + bitangent * (oy * SPREAD)).normalize();
+                if !map.collision.trace_ray(origin, d, 60.0, TraceMask::Shot).hit {
+                    open += 0.25;
+                }
+            }
+            open
+        };
+        r += env.sun_color[0] * ndotl * visible;
+        g += env.sun_color[1] * ndotl * visible;
+        b += env.sun_color[2] * ndotl * visible;
+
+        // A single bounce off the ground, tinted by it. Cheap, and the reason
+        // a wall facing away from the sun in a bright map is not simply grey.
+        let bounce = ndotl * 0.16 * visible;
+        r += env.ambient_ground[0] * bounce;
+        g += env.ambient_ground[1] * bounce;
+        b += env.ambient_ground[2] * bounce;
     }
 
     if quality == BakeQuality::Full {
@@ -504,6 +544,35 @@ fn bake_light(
         (b * 0.5 * 255.0).clamp(0.0, 255.0) as u8,
         255,
     ]
+}
+
+/// How much of the sky this point can see, over a long range.
+///
+/// Distinct from the short-range ambient occlusion below, which is about
+/// corners and contact. This is about being under something.
+fn sky_visibility(map: &MapData, p: Vec3, n: Vec3) -> f32 {
+    const DIRS: [Vec3; 5] = [
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.62, 0.78, 0.0),
+        Vec3::new(-0.62, 0.78, 0.0),
+        Vec3::new(0.0, 0.78, 0.62),
+        Vec3::new(0.0, 0.78, -0.62),
+    ];
+    let origin = p + n * 0.06;
+    let mut open = 0.0f32;
+    for d in DIRS {
+        let dir = d.normalize();
+        // Only count directions on this surface's own side.
+        if dir.dot(n) <= 0.0 {
+            open += 0.2;
+            continue;
+        }
+        if !map.collision.trace_ray(origin, dir, 26.0, TraceMask::Shot).hit {
+            open += 0.2;
+        }
+    }
+    // Never fully black: a point that sees no sky still gets bounced light.
+    0.25 + 0.75 * open
 }
 
 /// Short-range occlusion from four rays in the normal's hemisphere. Cheap,
