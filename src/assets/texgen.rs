@@ -180,6 +180,67 @@ impl Painter {
         }
     }
 
+    /// Paints from a height field as well as a colour.
+    ///
+    /// This is the single largest thing that separates these materials from
+    /// flat patterns. The closure returns an albedo and a height; the height
+    /// field is differenced into a normal and lit from a fixed direction, so
+    /// mortar courses recess, panel seams have a lit lip and a corrugated
+    /// sheet is actually round. Nothing at run time knows about any of it -
+    /// the world shader has no normals and no lights - which is exactly why it
+    /// has to be baked in here.
+    ///
+    /// `relief` scales the apparent depth. It is in the same units as the
+    /// height the closure returns, which is nominally 0..1 across the tile.
+    fn shade_relief(
+        &mut self,
+        tint: [u8; 3],
+        relief: f32,
+        mut f: impl FnMut(f32, f32) -> (f32, f32),
+    ) {
+        let n = self.size as usize;
+        let sf = self.size as f32;
+        let mut albedo = vec![0.0f32; n * n];
+        let mut height = vec![0.0f32; n * n];
+        for y in 0..n {
+            for x in 0..n {
+                let (a, h) = f(x as f32 / sf, y as f32 / sf);
+                albedo[y * n + x] = a;
+                height[y * n + x] = h;
+            }
+        }
+
+        // Light from the upper left, which is the convention every texture in
+        // every game of this kind is lit from, and which agrees with the
+        // baked sun direction closely enough not to fight it.
+        let lx = -0.55f32;
+        let ly = -0.62f32;
+        let lz = 0.56f32;
+        let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
+        let scale = relief * sf * 0.02;
+
+        for y in 0..n {
+            for x in 0..n {
+                // Central differences, wrapping, so the relief tiles.
+                let xm = height[y * n + (x + n - 1) % n];
+                let xp = height[y * n + (x + 1) % n];
+                let ym = height[((y + n - 1) % n) * n + x];
+                let yp = height[((y + 1) % n) * n + x];
+                let dx = (xp - xm) * scale;
+                let dy = (yp - ym) * scale;
+                // Normal of the height field, normalised.
+                let inv = 1.0 / (dx * dx + dy * dy + 1.0).sqrt();
+                let (nx, ny, nz) = (-dx * inv, -dy * inv, inv);
+                let diffuse = (nx * lx + ny * ly + nz * lz).max(0.0);
+                // A little ambient so a face turned away is dark, not black.
+                let lit = 0.62 + 0.72 * diffuse;
+                let lum = albedo[y * n + x] * lit;
+                self.set(x as u32, y as u32,
+                         base[0] * lum, base[1] * lum, base[2] * lum, 1.0);
+            }
+        }
+    }
+
     /// Multiplies in large-scale dirt and a hint of colour drift.
     ///
     /// Applied on top of every opaque material. Tiling is what makes a
@@ -239,85 +300,77 @@ fn build_mips(base: Vec<u8>, size: u32) -> Vec<Vec<u8>> {
 fn gen_rough(p: &mut Painter, tint: [u8; 3], grain: f32, blotch: f32, seed: u32) {
     let period = 16;
     let tx = p.texel;
-    p.shade(tint, |u, v, _, _| {
+    p.shade_relief(tint, 0.22, |u, v| {
         let n = fbm(u * period as f32, v * period as f32, period, 5, seed);
         let mid = fbm(u * 40.0, v * 40.0, 40, 3, seed ^ 0x1D);
         let fine = vnoise(u * 96.0, v * 96.0, 96, seed ^ 0x99);
-        // Hairline cracks from a worley boundary. Faint, and at a period well
-        // off the pattern's own, because a crack network the eye can trace is
-        // a crack network the eye can see repeating every three metres.
+
+        // Hairline cracks, faint and at a period well off the pattern's own.
         let (f1, f2) = worley2(u * 11.0, v * 11.0, 11, seed ^ 0xC4);
         let crack = (1.0 - smoothstep(tx * 4.0, tx * 14.0, f2 - f1))
             * smoothstep(0.35, 0.60, fbm(u * 3.0, v * 3.0, 3, 2, seed ^ 0x6F));
-        // Small pits: the pockmarking that reads as concrete rather than paper.
+        // Pits: the pockmarking that reads as poured concrete rather than paper.
         let (pf, _) = worley2(u * 40.0, v * 40.0, 40, seed ^ 0x2E);
-        let pit = smoothstep(0.26, 0.02, pf) * 0.07;
-        let mut lum = 0.80 + (n - 0.5) * blotch + (mid - 0.5) * blotch * 0.45
-            + (fine - 0.5) * grain;
-        lum -= crack * 0.07 + pit;
-        (lum, 1.0)
+        let pit = smoothstep(0.26, 0.02, pf);
+
+        let albedo = 0.94 + (n - 0.5) * blotch + (mid - 0.5) * blotch * 0.45
+            + (fine - 0.5) * grain - crack * 0.07 - pit * 0.07;
+        // Relief carries the cracks and pits, so they read as cut into the
+        // surface from any angle rather than as dark paint.
+        let height = (n - 0.5) * 0.5 + (mid - 0.5) * 0.35 + (fine - 0.5) * 0.7
+            - crack * 1.4 - pit * 0.9;
+        (albedo, height)
     });
     p.grime(0.5, seed);
 }
 
 /// Regular brick courses with mortar.
 fn gen_brick(p: &mut Painter, tint: [u8; 3], rows: f32, mortar: [u8; 3], seed: u32) {
-    let mortar_l = [mortar[0] as f32 / 255.0, mortar[1] as f32 / 255.0, mortar[2] as f32 / 255.0];
-    let base = [tint[0] as f32 / 255.0, tint[1] as f32 / 255.0, tint[2] as f32 / 255.0];
+    let mortar_l = (mortar[0] as f32 + mortar[1] as f32 + mortar[2] as f32) / (3.0 * 255.0);
+    let base_l = (tint[0] as f32 + tint[1] as f32 + tint[2] as f32) / (3.0 * 255.0);
     let tx = p.texel;
-    // Joints get an antialiased shoulder; anything thinner than about three
-    // texels crawls at distance no matter how good the mip chain is.
     let soft = (tx * rows * 1.6).max(0.006);
-    p.shade_rgb(|u, v| {
+    p.shade_relief(tint, 0.30, |u, v| {
         let row = (v * rows).floor();
         let offset = if (row as i32) % 2 == 0 { 0.0 } else { 0.5 };
         let bu = (u * rows * 0.5 + offset).fract();
         let bv = (v * rows).fract();
         let joint_u = 0.05;
         let joint_v = 0.10;
-        // Distance into the brick face, 0 at the joint centreline.
         let du = smoothstep(joint_u - soft, joint_u + soft, cell_edge(bu));
         let dv = smoothstep(joint_v - soft * 2.0, joint_v + soft * 2.0, cell_edge(bv));
         let face = du.min(dv);
 
         let id = hash2((u * rows * 0.5 + offset) as i32, row as i32, seed);
         let id2 = hash2((u * rows * 0.5 + offset) as i32, row as i32, seed ^ 0xBEEF);
-        let n = fbm(u * 60.0, v * 60.0, 60, 3, seed);
+        let grain = fbm(u * 70.0, v * 70.0, 70, 3, seed);
         let coarse = fbm(u * 9.0, v * 9.0, 9, 3, seed ^ 0x4C);
 
-        // Mortar: paler, rougher, and recessed, so the courses catch light.
-        let mortar_lum = 0.80 + (n - 0.5) * 0.20;
-        // Brick faces vary in both value and hue; a wall of identical bricks
-        // is the tell of a generated texture.
-        let brick_lum = 0.66 + id * 0.34 + (n - 0.5) * 0.16 + (coarse - 0.5) * 0.12;
-        // Chipped corners: bite into the face near the joints on some bricks.
-        let chip = if id2 > 0.72 {
-            smoothstep(0.16, 0.0, cell_edge(bu).min(cell_edge(bv))) * (id2 - 0.72) * 2.6
+        // A brick that is slightly proud or slightly sunk, which is what makes
+        // a real wall read as laid by hand rather than printed.
+        let sit = (id2 - 0.5) * 0.25;
+        let chip = if id2 > 0.74 {
+            smoothstep(0.16, 0.0, cell_edge(bu).min(cell_edge(bv))) * (id2 - 0.74) * 3.0
         } else { 0.0 };
-        let lum = mortar_lum + (brick_lum - mortar_lum) * face - chip * 0.18;
 
-        // A shadow line along the bottom of each course sells the relief.
-        let shadow = (1.0 - smoothstep(joint_v, joint_v + 0.07, bv)) * 0.10;
-        let value = (lum - shadow).max(0.0);
+        let height = face * (1.0 + sit) - chip * 0.7 + (grain - 0.5) * 0.10;
 
-        // Fired brick varies in hue as well as value: some run red, some tan.
-        let warm = (id - 0.5) * 0.16 * face;
-        let hue = [1.0 + warm, 1.0, 1.0 - warm * 0.7];
-        let mixed = [
-            (mortar_l[0] + (base[0] * hue[0] - mortar_l[0]) * face) * value,
-            (mortar_l[1] + (base[1] * hue[1] - mortar_l[1]) * face) * value,
-            (mortar_l[2] + (base[2] * hue[2] - mortar_l[2]) * face) * value,
-        ];
-        (mixed, 1.0)
+        let albedo = if face > 0.5 {
+            // Fired brick varies in value and hue between units.
+            base_l * (0.80 + id * 0.42) + (grain - 0.5) * 0.10 + (coarse - 0.5) * 0.08
+        } else {
+            mortar_l * (0.94 + (grain - 0.5) * 0.22)
+        };
+        (albedo / base_l.max(0.02), height)
     });
-    p.grime(0.55, seed);
+    p.grime(0.5, seed);
 }
 
 /// Rectangular panels with recessed seams and rivets: metal, hulls, bunkers.
 fn gen_panel(p: &mut Painter, tint: [u8; 3], divisions: f32, rivets: bool, rust: f32, seed: u32) {
     let tx = p.texel;
     let soft = (tx * divisions * 1.8).max(0.008);
-    p.shade(tint, |u, v, _, _| {
+    p.shade_relief(tint, 0.42, |u, v| {
         let pu = (u * divisions).fract();
         let pv = (v * divisions).fract();
         let seam = 0.040;
@@ -326,40 +379,38 @@ fn gen_panel(p: &mut Painter, tint: [u8; 3], divisions: f32, rivets: bool, rust:
         let inside = smoothstep(seam - soft, seam + soft, edge_u.min(edge_v));
 
         let cell = hash2((u * divisions) as i32, (v * divisions) as i32, seed);
-        let mut lum = 0.80 + cell * 0.14;
-        // Recessed seam, with a lit shoulder on the upper lip: a bevel drawn
-        // in value, which is all a texture can do without a normal map.
-        let bevel = (1.0 - smoothstep(seam, seam + 0.030, edge_v)) * (if pv < 0.5 { 0.14 } else { -0.10 });
-        lum = lum * (0.60 + 0.40 * inside) + bevel * inside;
+        let mut height = inside * (1.0 + (cell - 0.5) * 0.18);
+        let mut albedo = 0.86 + cell * 0.14;
 
         if rivets {
-            // Round heads inset from each corner, antialiased and lit from
-            // above so they read as domes rather than dots.
-            let r = 0.055f32;
-            let inset = 0.10f32;
-            let dx = (pu - inset).min(pu - (1.0 - inset)).abs().min((pu - (1.0 - inset)).abs());
+            // Round heads inset from each corner. Relief does the lighting, so
+            // they no longer need a hand-painted highlight to read as domes.
+            let inset = 0.11f32;
+            let dx = (pu - inset).abs().min((pu - (1.0 - inset)).abs());
             let dy = (pv - inset).abs().min((pv - (1.0 - inset)).abs());
             let d = (dx * dx + dy * dy).sqrt();
+            let r = 0.055f32;
             let head = 1.0 - smoothstep(r - soft, r + soft, d);
-            let lit = ((r - d) / r).clamp(0.0, 1.0);
-            lum += head * (0.10 + lit * 0.16) - head * smoothstep(0.4, 1.0, dy / r.max(1e-4)) * 0.05;
+            // A hemisphere, not a cylinder: height falls off toward the rim.
+            height += head * (1.0 - (d / r.max(1e-4)).min(1.0).powi(2)) * 0.55;
         }
 
         let grain = vnoise(u * 110.0, v * 110.0, 110, seed ^ 0x55);
         let brushed = vnoise(u * 6.0, v * 150.0, 150, seed ^ 0x71);
-        lum += (grain - 0.5) * 0.05 + (brushed - 0.5) * 0.05;
+        albedo += (grain - 0.5) * 0.05 + (brushed - 0.5) * 0.06;
+        height += (grain - 0.5) * 0.04;
 
         if rust > 0.0 {
-            // Rust blooms from the seams and runs downward, which is where
-            // water actually sits on a panel.
             let bloom = fbm(u * 10.0, v * 10.0, 10, 4, seed ^ 0xAB);
             let run = fbm(u * 26.0, v * 5.0, 26, 3, seed ^ 0xD3);
             let near_seam = 1.0 - inside;
-            let amount = ((bloom - 0.50).max(0.0) * 2.0 + near_seam * 0.35 + (run - 0.6).max(0.0) * 1.2)
-                .clamp(0.0, 1.0);
-            lum *= 1.0 - amount * rust * 0.45;
+            let amount = ((bloom - 0.50).max(0.0) * 2.0 + near_seam * 0.35
+                          + (run - 0.6).max(0.0) * 1.2).clamp(0.0, 1.0);
+            albedo *= 1.0 - amount * rust * 0.45;
+            // Rust eats the surface as well as staining it.
+            height -= amount * rust * 0.18;
         }
-        (lum, 1.0)
+        (albedo, height)
     });
     p.grime(0.45, seed);
 }
@@ -367,24 +418,26 @@ fn gen_panel(p: &mut Painter, tint: [u8; 3], divisions: f32, rivets: bool, rust:
 /// Vertical corrugations.
 fn gen_corrugated(p: &mut Painter, tint: [u8; 3], ribs: f32, seed: u32) {
     let tx = p.texel;
-    // A rib narrower than four texels is a moire generator. Cap the count so
-    // the profile is always resolvable at this resolution.
+    // A rib narrower than six texels is a moire generator whatever else is
+    // done to it; cap the count to what the resolution can resolve.
     let ribs = ribs.min(1.0 / (tx * 6.0));
-    p.shade(tint, |u, v, _, _| {
+    p.shade_relief(tint, 0.85, |u, v| {
         let phase = u * ribs * std::f32::consts::TAU;
-        let wave = phase.sin();
-        // Asymmetric: a bright crest and a darker, wider trough, which is what
-        // a rolled sheet lit from above actually looks like.
-        let mut lum = 0.78 + wave * 0.16 + (wave * wave - 0.5) * 0.06;
-        // Horizontal fixing seams every so often.
+        // The profile is the height now, so the sheet is genuinely round and
+        // its highlight moves with the surface rather than being painted on.
+        let height = phase.sin() * 0.5 + 0.5;
+
+        let mut albedo = 0.90;
+        // Horizontal fixing seams every so often, pressed in.
         let band = (v * 4.0).fract();
-        lum *= 1.0 - (1.0 - smoothstep(0.0, tx * 5.0, cell_edge(band))) * 0.22;
-        // Weathering runs down the troughs.
+        let seam = 1.0 - smoothstep(0.0, tx * 5.0, cell_edge(band));
+        albedo *= 1.0 - seam * 0.18;
+
         let streak = fbm(u * ribs * 0.5, v * 6.0, 12, 3, seed);
-        lum += (streak - 0.5) * 0.10 * (0.6 - wave * 0.4);
+        albedo += (streak - 0.5) * 0.12 * (1.0 - height * 0.5);
         let grain = vnoise(u * 90.0, v * 90.0, 90, seed ^ 0x3B);
-        lum += (grain - 0.5) * 0.04;
-        (lum, 1.0)
+        albedo += (grain - 0.5) * 0.05;
+        (albedo, height - seam * 0.25)
     });
     p.grime(0.5, seed);
 }
@@ -481,28 +534,26 @@ fn gen_woven(p: &mut Painter, tint: [u8; 3], threads: f32, lumpy: f32, seed: u32
 fn gen_wood(p: &mut Painter, tint: [u8; 3], planks: f32, vertical: bool, seed: u32) {
     let tx = p.texel;
     let soft = (tx * planks * 2.0).max(0.010);
-    p.shade(tint, |u, v, _, _| {
+    p.shade_relief(tint, 0.20, |u, v| {
         let (along, across) = if vertical { (v, u) } else { (u, v) };
         let plank = (across * planks).floor();
         let edge = (across * planks).fract();
         let id = hash2(plank as i32, 0, seed);
         let id2 = hash2(plank as i32, 7, seed);
 
-        // Growth rings: ridged noise stretched hard along the plank.
+        // Growth rings stretched hard along the plank.
         let rings = ridged(along * 3.0 + id * 8.0, across * planks * 6.0, 24, 4, seed);
         let fibre = vnoise(along * 120.0, across * planks * 20.0, 120, seed ^ 0x2B);
-        // A knot or two per plank.
         let kx = hash2(plank as i32, 3, seed);
-        let kd = ((along - kx) * (along - kx) * 6.0
-            + (edge - 0.5) * (edge - 0.5)).sqrt();
+        let kd = ((along - kx) * (along - kx) * 6.0 + (edge - 0.5) * (edge - 0.5)).sqrt();
         let knot = smoothstep(0.16, 0.0, kd) * if id2 > 0.55 { 1.0 } else { 0.0 };
 
-        let mut lum = 0.70 + id * 0.22 + rings * 0.26 + (fibre - 0.5) * 0.10;
-        lum -= knot * 0.34;
-        // Gap between planks, plus a lit top lip.
+        let albedo = 0.86 + id * 0.24 + rings * 0.26 + (fibre - 0.5) * 0.10 - knot * 0.34;
+        // Gap between planks, and planks that do not all sit at one level.
         let gap = 1.0 - smoothstep(0.0, soft * 2.0, cell_edge(edge));
-        lum = lum * (1.0 - gap * 0.55);
-        (lum, 1.0)
+        let height = (id2 - 0.5) * 0.30 + rings * 0.22 + (fibre - 0.5) * 0.22
+            - gap * 2.6 - knot * 0.5;
+        (albedo * (1.0 - gap * 0.45), height)
     });
     p.grime(0.45, seed);
 }
@@ -510,34 +561,42 @@ fn gen_wood(p: &mut Painter, tint: [u8; 3], planks: f32, vertical: bool, seed: u
 /// Regular grid: tiles, diamond plate, gratings.
 fn gen_grid(p: &mut Painter, tint: [u8; 3], cells: f32, thickness: f32, cutout: bool, seed: u32) {
     let tx = p.texel;
-    // Never ask for more cells than the resolution can hold a bar in.
     let cells = cells.min(1.0 / (tx * 10.0));
     let soft = (tx * cells * 1.5).max(0.010);
-    p.shade(tint, |u, v, _, _| {
+    if cutout {
+        // A grating is a cut-out, so it has an alpha channel and cannot go
+        // through the relief path; it is lit by the bar's own edge instead.
+        p.shade(tint, |u, v, _, _| {
+            let du = cell_edge((u * cells).fract());
+            let dv = cell_edge((v * cells).fract());
+            let bar = (1.0 - smoothstep(thickness - soft, thickness + soft, du))
+                .max(1.0 - smoothstep(thickness - soft, thickness + soft, dv));
+            let n = vnoise(u * 80.0, v * 80.0, 80, seed);
+            let lit = 1.0 - smoothstep(0.0, thickness, dv.min(du));
+            let lum = 0.72 + lit * 0.22 + (n - 0.5) * 0.14;
+            (lum, bar)
+        });
+        return;
+    }
+    p.shade_relief(tint, 0.40, |u, v| {
         let cu = (u * cells).fract();
         let cv = (v * cells).fract();
         let du = cell_edge(cu);
         let dv = cell_edge(cv);
-        // `bar` is 1 on the frame, 0 in the hole, with a soft shoulder.
-        let bar = (1.0 - smoothstep(thickness - soft, thickness + soft, du))
+        let grout = (1.0 - smoothstep(thickness - soft, thickness + soft, du))
             .max(1.0 - smoothstep(thickness - soft, thickness + soft, dv));
         let n = vnoise(u * 80.0, v * 80.0, 80, seed);
-        if cutout {
-            // The hole is transparent, the bar is lit along its upper edge.
-            let lit = 1.0 - smoothstep(0.0, thickness, dv.min(du));
-            let lum = 0.72 + lit * 0.22 + (n - 0.5) * 0.14;
-            (lum, bar)
-        } else {
-            // A tile floor: grout recessed, tile face slightly domed, and the
-            // odd cracked or discoloured tile.
-            let id = hash2((u * cells) as i32, (v * cells) as i32, seed);
-            let dome = (du.min(dv) * 4.0).min(1.0);
-            let lum = (0.60 + (n - 0.5) * 0.10) * bar
-                + (0.86 + id * 0.16 + dome * 0.06 + (n - 0.5) * 0.08) * (1.0 - bar);
-            (lum, 1.0)
-        }
+        let id = hash2((u * cells) as i32, (v * cells) as i32, seed);
+
+        // Each tile domes very slightly and sits at its own level, which is
+        // what stops a tiled floor looking like a printed grid.
+        let dome = (du.min(dv) * 5.0).min(1.0);
+        let albedo = 0.70 * grout + (0.96 + id * 0.16 + (n - 0.5) * 0.08) * (1.0 - grout);
+        let height = (1.0 - grout) * (0.72 + dome * 0.28 + (id - 0.5) * 0.22)
+            + (n - 0.5) * 0.06;
+        (albedo, height)
     });
-    if !cutout { p.grime(0.4, seed); }
+    p.grime(0.4, seed);
 }
 
 /// Diagonal hazard stripes.
