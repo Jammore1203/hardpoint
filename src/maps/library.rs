@@ -1786,6 +1786,16 @@ fn foundry(b: &mut MapBuilder) {
         b.ramp(x, cy, z, sx, 2.2, sz, ax, Mat::Concrete);
     }
 
+    // --- Work lamps on long stems over the floor. The clerestory windows
+    //     are fifteen metres up and only reach the walls under them; the
+    //     middle of the hall, which is where the fighting is, had nothing.
+    for (x, z) in [
+        (-16.0f32, -16.0f32), (10.0, -16.0), (-16.0, 10.0), (10.0, 10.0),
+        (-3.0, -3.0), (-24.0, 0.0), (22.0, 0.0), (0.0, -24.0), (0.0, 22.0),
+    ] {
+        b.hanging_light(x, z, h, 6.6, 2.2, 2.2);
+    }
+
     // --- Four furnaces: enormous hard cover in the quadrants.
     for (fx, fz) in [(-20.0f32, -20.0f32), (14.0, -20.0), (-20.0, 14.0), (14.0, 14.0)] {
         // Chamfered, so rounding a furnace is a curve rather than a right
@@ -2162,6 +2172,16 @@ fn deepwell(b: &mut MapBuilder) {
         b.divider(x, 0.0, z, len, ch, along_x, door, Mat::Bunker);
     }
 
+    // The upper deck had no fitting of any kind: a ring corridor and nine
+    // sealed rooms lit by nothing but the ambient term, which came out as
+    // black walls you navigated by memory. One fitting every ten metres.
+    for i in 0..6 {
+        for j in 0..6 {
+            b.ceiling_light(-25.0 + i as f32 * 10.0, -25.0 + j as f32 * 10.0,
+                            ch, 2.6, 0.5);
+        }
+    }
+
     // Command centre in the middle block: screens, a table, hard cover.
     b.decor(-3.0, 0.0, -4.0, 6.0, 1.0, 3.0, Mat::ControlPanel);
     b.boxc(0.0, 0.0, 0.0, 3.4, 1.0, 2.2, Mat::ControlPanel).with_scale(1.4);
@@ -2189,9 +2209,12 @@ fn deepwell(b: &mut MapBuilder) {
     b.crates(20.0, lower, 20.0, 1.3, 2, Mat::WoodCrate);
     b.crates(20.0, lower, -20.0, 1.3, 3, Mat::WoodCrate);
     // Lighting strips so the lower deck is legible without being bright.
+    // These are baked as real light sources now, so they are fittings with a
+    // housing rather than glowing rectangles stuck to the ceiling.
     for i in 0..5 {
         for j in 0..5 {
-            b.decor(-22.0 + i as f32 * 11.0, lower + ch - 0.35, -22.0 + j as f32 * 11.0, 3.0, 0.25, 0.5, Mat::WindowLit);
+            b.ceiling_light(-22.0 + i as f32 * 11.0, -22.0 + j as f32 * 11.0,
+                            lower + ch, 3.0, 0.5);
         }
     }
 

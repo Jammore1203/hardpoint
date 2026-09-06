@@ -622,6 +622,34 @@ impl MapBuilder {
         b
     }
 
+    /// A ceiling light: a shallow housing with a lit panel under it.
+    ///
+    /// Emissive surfaces are baked as light sources, so this is the fixture
+    /// and the illumination in one. `y` is the ceiling height; the fitting
+    /// hangs just below it.
+    pub fn ceiling_light(&mut self, cx: f32, cz: f32, y: f32, sx: f32, sz: f32) {
+        self.decor(cx - sx * 0.5 - 0.07, y - 0.13, cz - sz * 0.5 - 0.07,
+                   sx + 0.14, 0.13, sz + 0.14, Mat::MetalPanel)
+            .tex_scale = 3.0;
+        self.decor(cx - sx * 0.5, y - 0.17, cz - sz * 0.5, sx, 0.05, sz, Mat::WindowLit)
+            .tex_scale = 1.4;
+    }
+
+    /// A lamp hung from a high roof on a stem, for halls a ceiling fitting
+    /// would be too far away to light.
+    pub fn hanging_light(&mut self, cx: f32, cz: f32, roof_y: f32, drop: f32,
+                         sx: f32, sz: f32) {
+        let y = roof_y - drop;
+        self.decor(cx - 0.06, y, cz - 0.06, 0.12, drop, 0.12, Mat::PipeMetal)
+            .tex_scale = 2.0;
+        // A shade, so the lamp reads as a fitting and not as a glowing slab.
+        self.decor(cx - sx * 0.5 - 0.12, y - 0.22, cz - sz * 0.5 - 0.12,
+                   sx + 0.24, 0.22, sz + 0.24, Mat::MetalPanel)
+            .tex_scale = 3.0;
+        self.decor(cx - sx * 0.5, y - 0.26, cz - sz * 0.5, sx, 0.05, sz, Mat::WindowLit)
+            .tex_scale = 1.4;
+    }
+
     /// An octagonal prism that nothing collides with.
     ///
     /// The decorative twin of `column`, for the things that want a round

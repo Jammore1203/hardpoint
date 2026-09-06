@@ -484,7 +484,7 @@ struct BakedLight {
 
 /// The most lights any one map will bake. Sorted by strength first, so a map
 /// that overruns this loses its dimmest.
-const MAX_BAKED_LIGHTS: usize = 64;
+const MAX_BAKED_LIGHTS: usize = 128;
 
 /// Emissive materials below this contribute a glow to their own surface but
 /// are too weak to light anything around them. Hazard striping is the case
@@ -526,9 +526,25 @@ fn gather_lights(map: &MapData) -> Vec<BakedLight> {
         let long = (0..3).max_by(|&i, &j| dims[i].total_cmp(&dims[j])).unwrap();
         if thin == long { continue; }
 
-        // Out of the surface, on whichever side the map is.
+        // Out of the surface, on whichever side the room is. Which side that
+        // is gets decided by tracing: a strip light in a ceiling and a window
+        // in an outside wall both face into open space, and no amount of
+        // reasoning about where the middle of the map is will tell you which
+        // way a light on the lower deck of a two-storey bunker points.
         let mut out = Vec3::ZERO;
-        out[thin] = if centre[thin] >= mid[thin] { 1.0 } else { -1.0 };
+        out[thin] = 1.0;
+        let probe = |d: Vec3| -> f32 {
+            let o = mid + d * (dims[thin] * 0.5 + 0.05);
+            let hit = map.collision.trace_ray(o, d, 3.0, TraceMask::Shot);
+            if hit.hit { (hit.point - o).length() } else { 3.0 }
+        };
+        let (up, down) = (probe(out), probe(-out));
+        if down > up + 0.05 {
+            out = -out;
+        } else if (up - down).abs() <= 0.05 && centre[thin] < mid[thin] {
+            // Nothing to choose between them; fall back to facing inward.
+            out = -out;
+        }
         let stand_off = dims[thin] * 0.5 + 0.45;
 
         // Radius grows with brightness and with how much surface is glowing;

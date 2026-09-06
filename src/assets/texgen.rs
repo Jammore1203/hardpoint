@@ -690,6 +690,38 @@ fn gen_lit(p: &mut Painter, tint: [u8; 3], cells: f32, scanlines: bool, seed: u3
     });
 }
 
+/// Chequer plate: raised lozenges in staggered pairs, the way real tread
+/// plate is rolled.
+///
+/// This used to be `gen_grid`, which is a grid of squares -- fine for a tiled
+/// floor and nothing like tread plate, and on a large surface it read as a
+/// chessboard. The studs are the whole point of the material: they are what
+/// says "you can walk on this" from across a room.
+fn gen_chequer(p: &mut Painter, tint: [u8; 3], cells: f32, seed: u32) {
+    p.shade_relief(tint, 0.52, |u, v| {
+        let cu = (u * cells).fract();
+        // Every other row is offset half a cell, which is how the pattern is
+        // actually laid out and what stops it reading as a lattice.
+        let row = (v * cells).floor();
+        let cv = (v * cells).fract();
+        let su = (cu + if (row as i32) % 2 == 0 { 0.0 } else { 0.5 }).fract();
+
+        // Two lozenges per cell, crossed, one leaning each way.
+        let a = ((su - 0.30) + (cv - 0.30)).abs() + ((su - 0.30) - (cv - 0.30)).abs() * 0.34;
+        let bb = ((su - 0.72) - (cv - 0.70)).abs() + ((su - 0.72) + (cv - 0.70)).abs() * 0.34;
+        let stud = (1.0 - smoothstep(0.14, 0.24, a)).max(1.0 - smoothstep(0.14, 0.24, bb));
+
+        let grit = vnoise(u * 110.0, v * 110.0, 110, seed) - 0.5;
+        let wear = fbm(u * 8.0, v * 8.0, 8, 3, seed ^ 0x63) - 0.5;
+        // The plate between the studs is scuffed dull; the studs themselves
+        // are polished by boots.
+        let albedo = 0.80 + stud * 0.26 + wear * 0.14 + grit * 0.08;
+        let height = stud * 0.80 + wear * 0.12 + grit * 0.06;
+        (albedo, height)
+    });
+    p.grime(0.45, seed);
+}
+
 /// Blued steel: fine lengthwise machining, a few wear marks on the high spots.
 ///
 /// A weapon is the one object the player looks at for the whole match, at
@@ -929,7 +961,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         StoneWall => gen_brick(&mut p, tint, 7.0, [148, 144, 136], seed),
         MetalPanel => gen_panel(&mut p, tint, 3.0, true, 0.0, seed),
         MetalRust => gen_panel(&mut p, tint, 2.0, true, 0.9, seed),
-        MetalPlateDiamond => gen_grid(&mut p, tint, 8.0, 0.16, false, seed),
+        MetalPlateDiamond => gen_chequer(&mut p, tint, 7.0, seed),
         Corrugated => gen_corrugated(&mut p, tint, 12.0, seed),
         Grating => gen_grid(&mut p, tint, 7.0, 0.20, true, seed),
         HullPainted => gen_panel(&mut p, tint, 2.0, true, 0.35, seed),
