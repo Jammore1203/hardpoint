@@ -97,7 +97,20 @@ impl Gpu {
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: pick_present_mode(&caps, vsync),
-            desired_maximum_frame_latency: 1,
+            // Two, not one.
+            //
+            // A latency of one makes the CPU wait for the GPU to finish the
+            // previous frame before it can acquire an image for the next, so
+            // the two never overlap and every frame costs CPU time plus GPU
+            // time instead of the larger of the two. On this game that was six
+            // of every seven milliseconds of the draw spent blocked in
+            // `get_current_texture`, on a scene of ninety thousand triangles
+            // that the hardware finishes in well under a millisecond.
+            //
+            // Two is the smallest value that lets them pipeline, and costs at
+            // most one frame of extra input latency - which at these frame
+            // rates is a few milliseconds, and buys back a great many more.
+            desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
         };

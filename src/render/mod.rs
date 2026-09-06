@@ -509,6 +509,8 @@ impl Renderer {
         self.captured = Some((w, h, out));
     }
 
+    pub fn adapter_name(&self) -> &str { &self.gpu.adapter_name }
+    pub fn backend(&self) -> &str { &self.gpu.backend }
     pub fn texture_memory(&self) -> usize { self.texture_bytes }
     pub fn scene_memory(&self) -> usize { self.targets.memory_bytes() }
     pub fn internal_size(&self) -> (u32, u32) { (self.targets.width, self.targets.height) }

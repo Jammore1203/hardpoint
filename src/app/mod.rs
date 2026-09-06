@@ -719,6 +719,18 @@ impl App {
                          c.roster.iter().filter(|r| r.present && r.is_bot).count());
             }
         }
+        // What the renderer was actually being asked for, averaged over the
+        // run. A frame rate on its own says something is slow; this says what.
+        let st = self.renderer.stats;
+        let (iw, ih) = self.renderer.internal_size();
+        println!("[gpu] {} ({})", self.renderer.adapter_name(), self.renderer.backend());
+        println!(
+            "[scene] {}x{}  {} draws  {} tris  {}/{} clusters  {} sprites  {} ui               {:.0} MB textures",
+            iw, ih, st.draw_calls, st.triangles, st.clusters_drawn, st.clusters_total,
+            st.sprites, st.ui_quads,
+            self.renderer.texture_memory() as f32 / (1024.0 * 1024.0),
+        );
+
         let Some(mut b) = self.bench.take() else { return };
         if b.len() < 32 { return; }
         let n = b.len();
