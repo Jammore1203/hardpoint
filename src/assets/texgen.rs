@@ -690,6 +690,50 @@ fn gen_lit(p: &mut Painter, tint: [u8; 3], cells: f32, scanlines: bool, seed: u3
     });
 }
 
+/// A block of flats at four hundred metres: storeys of windows in concrete.
+///
+/// Backdrop blocks were plain wall textures scaled up, which gives a
+/// silhouette but no sense of size -- a brick tile on a forty-metre tower
+/// reads as a forty-metre brick. Windows are how the eye counts storeys and
+/// works out how far away a building is, and it is the only detail that
+/// survives the haze.
+fn gen_facade(p: &mut Painter, tint: [u8; 3], seed: u32) {
+    // Three storeys and three bays to a tile; the backdrop draws this at nine
+    // metres a tile, so a window lands every three metres in both directions,
+    // which is what a storey is.
+    let cols = 3.0f32;
+    let rows = 3.0f32;
+    p.shade_relief(tint, 0.30, |u, v| {
+        let cu = (u * cols).fract();
+        let cv = (v * rows).fract();
+        let ix = (u * cols) as i32;
+        let iy = (v * rows) as i32;
+
+        // Window opening: a tall rectangle inset in its cell.
+        // Taller than wide, and sitting in the upper part of its storey.
+        let inx = smoothstep(0.26, 0.31, cu) * (1.0 - smoothstep(0.69, 0.74, cu));
+        let iny = smoothstep(0.13, 0.18, cv) * (1.0 - smoothstep(0.62, 0.67, cv));
+        let win = inx * iny;
+
+        // Spandrel band under each row of windows, and a pilaster between
+        // each column: the two things that make concrete read as panelled.
+        let band = 1.0 - smoothstep(0.72, 0.80, cv);
+        let stain = fbm(u * 5.0, v * 9.0, 5, 3, seed ^ 0x2F) - 0.5;
+        let grain = vnoise(u * 90.0, v * 90.0, 90, seed) - 0.5;
+
+        // Most windows are dark; a few catch the sky, fewer still are lit.
+        let k = hash2(ix, iy, seed);
+        let glass = if k > 0.90 { 1.35 } else if k > 0.62 { 0.62 } else { 0.22 };
+
+        let wall = 0.92 + stain * 0.18 + grain * 0.08 - (1.0 - band) * 0.06;
+        let albedo = wall * (1.0 - win) + glass * win;
+        // Windows are recessed; the wall between them stands proud.
+        let height = (1.0 - win) * 0.75 + band * 0.10 + stain * 0.10;
+        (albedo, height)
+    });
+    p.grime(0.55, seed);
+}
+
 /// Wind-worked ground: sand ripples, snow sastrugi.
 ///
 /// `gen_granular` treats every loose surface as a bed of stones, which is
@@ -1062,6 +1106,7 @@ fn generate_layer(i: usize, size: u32) -> LayerMips {
         Duct => gen_corrugated(&mut p, tint, 8.0, seed),
         GunMetal => gen_gunmetal(&mut p, tint, seed),
         GunPolymer => gen_polymer(&mut p, tint, seed),
+        Facade => gen_facade(&mut p, tint, seed),
         Mesh => gen_grid(&mut p, tint, 10.0, 0.10, true, seed),
     }
 

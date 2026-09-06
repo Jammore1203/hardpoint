@@ -86,6 +86,12 @@ pub enum Mat {
     // colour a weapon is.
     GunMetal,
     GunPolymer,
+    // -- Distance ---------------------------------------------------------
+    /// A block of flats seen from four hundred metres: a concrete field with
+    /// a regular grid of windows in it. What a backdrop needs and a plain
+    /// wall texture cannot give it is storeys, because storeys are how the
+    /// eye reads a silhouette as a building and works out how far away it is.
+    Facade,
     Mesh,
 }
 
@@ -126,7 +132,7 @@ impl Mat {
             Cinderblock | BrickRed | BrickPale | StoneWall | Rock | SandRock
             | SnowRock | Gravel | Bunker => 0.04,
             Concrete | ConcreteWorn | ConcretePanel | Plaster | ConcreteFloor
-            | Cobble | RoofTile => 0.09,
+            | Cobble | RoofTile | Facade => 0.09,
             // Wood: sealed floorboards catch a window, packing crates do not.
             WoodCrate | WoodPlank => 0.10,
             WoodFloor => 0.22,
@@ -248,6 +254,7 @@ impl Mat {
             Duct => [140, 142, 144],
             GunMetal => [60, 63, 70],
             GunPolymer => [40, 41, 44],
+            Facade => [148, 144, 136],
             Mesh => [104, 108, 110],
         }
     }

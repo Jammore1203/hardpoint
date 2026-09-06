@@ -464,7 +464,10 @@ impl MapBuilder {
             let dpt = rng.range(9.0, 22.0);
             let mat = mats[(rng.next_u32() as usize) % mats.len().max(1)];
             let b = self.decor(x - w * 0.5, space.min.y, z - dpt * 0.5, w, h, dpt, mat);
-            b.tex_scale = 3.5;
+            // A facade carries its own storey spacing and needs a tile nine
+            // metres across for it to come out at three metres a floor;
+            // everything else is a wall texture and wants the small scale.
+            b.tex_scale = if mat == Mat::Facade { 9.0 } else { 3.5 };
             // Backdrop is lit flat: it sits in the haze, and shading it like
             // playable geometry makes it look near. Not brightly, though - on
             // a pale map an over-lit backdrop stops reading as distance and

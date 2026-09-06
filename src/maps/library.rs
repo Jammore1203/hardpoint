@@ -652,7 +652,7 @@ fn ironveil(b: &mut MapBuilder) {
     // --- Beyond the wire: scenery that is never reached, only seen.
     //     A level that stops at its own walls reads as a diorama.
     b.skirt(0x1A01, 34, 3.0, Mat::SandRock);
-    b.backdrop(0x1A01, 40.0, 52, 6.0, 16.0, &[Mat::SandRock, Mat::Cinderblock, Mat::ConcretePanel]);
+    b.backdrop(0x1A01, 40.0, 52, 6.0, 16.0, &[Mat::SandRock, Mat::Cinderblock, Mat::Facade, Mat::ConcretePanel]);
 
 }
 
@@ -1018,7 +1018,7 @@ fn belvoir(b: &mut MapBuilder) {
     // --- Beyond the wire: scenery that is never reached, only seen.
     //     A level that stops at its own walls reads as a diorama.
     b.skirt(0x1A02, 34, 3.2, Mat::StoneWall);
-    b.backdrop(0x1A02, 40.0, 60, 7.0, 18.0, &[Mat::BrickPale, Mat::Plaster, Mat::RoofTile]);
+    b.backdrop(0x1A02, 40.0, 60, 7.0, 18.0, &[Mat::BrickPale, Mat::Facade, Mat::Plaster, Mat::RoofTile]);
 
 }
 
@@ -1585,7 +1585,7 @@ fn highrise(b: &mut MapBuilder) {
     // --- Beyond the wire: scenery that is never reached, only seen.
     //     A level that stops at its own walls reads as a diorama.
     b.skirt(0x1A05, 34, 2.4, Mat::Asphalt);
-    b.backdrop(0x1A05, 36.0, 60, 14.0, 34.0, &[Mat::BrickRed, Mat::Plaster, Mat::ConcretePanel]);
+    b.backdrop(0x1A05, 36.0, 60, 14.0, 34.0, &[Mat::Facade, Mat::BrickRed, Mat::Facade, Mat::ConcretePanel]);
 
 }
 
@@ -1977,7 +1977,7 @@ fn foundry(b: &mut MapBuilder) {
     // --- Beyond the wire: scenery that is never reached, only seen.
     //     A level that stops at its own walls reads as a diorama.
     b.skirt(0x1A07, 34, 2.6, Mat::Gravel);
-    b.backdrop(0x1A07, 30.0, 44, 10.0, 26.0, &[Mat::BrickRed, Mat::MetalRust, Mat::Corrugated]);
+    b.backdrop(0x1A07, 30.0, 44, 10.0, 26.0, &[Mat::BrickRed, Mat::Facade, Mat::MetalRust, Mat::Corrugated]);
 
 }
 
@@ -2482,7 +2482,7 @@ fn junction(b: &mut MapBuilder) {
     // --- Beyond the wire: scenery that is never reached, only seen.
     //     A level that stops at its own walls reads as a diorama.
     b.skirt(0x1A0A, 34, 2.8, Mat::Gravel);
-    b.backdrop(0x1A0A, 40.0, 56, 7.0, 19.0, &[Mat::Corrugated, Mat::BrickRed, Mat::MetalRust]);
+    b.backdrop(0x1A0A, 40.0, 56, 7.0, 19.0, &[Mat::Corrugated, Mat::BrickRed, Mat::Facade, Mat::MetalRust]);
 
 }
 
@@ -2639,6 +2639,6 @@ fn overpass(b: &mut MapBuilder) {
     // --- Beyond the wire: scenery that is never reached, only seen.
     //     A level that stops at its own walls reads as a diorama.
     b.skirt(0x1A0C, 34, 2.6, Mat::Gravel);
-    b.backdrop(0x1A0C, 34.0, 52, 8.0, 22.0, &[Mat::Concrete, Mat::BrickPale, Mat::ConcretePanel]);
+    b.backdrop(0x1A0C, 34.0, 52, 8.0, 22.0, &[Mat::Concrete, Mat::Facade, Mat::BrickPale, Mat::ConcretePanel]);
 
 }
