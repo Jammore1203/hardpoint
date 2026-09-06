@@ -343,6 +343,10 @@ pub struct ViewModel {
     pub bob_phase: f32,
     pub recoil: f32,
     pub recoil_rot: f32,
+    /// Decays over about a twentieth of a second after a shot. The world is
+    /// lit by a bake and cannot be told about a muzzle flash, but the weapon
+    /// in the player's hands is drawn in its own pass and can be.
+    pub flash: f32,
     pub ads: f32,
     pub sprint: f32,
     pub reload_t: f32,
@@ -360,6 +364,7 @@ impl Default for ViewModel {
             bob_phase: 0.0,
             recoil: 0.0,
             recoil_rot: 0.0,
+            flash: 0.0,
             ads: 0.0,
             sprint: 0.0,
             reload_t: 0.0,
@@ -375,6 +380,7 @@ impl ViewModel {
     pub fn kick(&mut self, amount: f32) {
         self.recoil = (self.recoil + amount).min(1.4);
         self.recoil_rot = (self.recoil_rot + amount * 0.7).min(1.2);
+        self.flash = 1.0;
     }
 
     pub fn start_reload(&mut self, duration: f32) {
@@ -402,6 +408,9 @@ impl ViewModel {
         self.sprint += ((if sprinting { 1.0 } else { 0.0 }) - self.sprint).clamp(-sprint_rate, sprint_rate);
 
         self.recoil *= (-13.0 * dt).exp();
+        // Fast: a muzzle flash is over in a frame or two at sixty hertz, and
+        // anything slower reads as the gun glowing rather than as it firing.
+        self.flash *= (-26.0 * dt).exp();
         self.recoil_rot *= (-10.0 * dt).exp();
         self.reload_t = (self.reload_t - dt).max(0.0);
         self.swap_t = (self.swap_t - dt).max(0.0);
@@ -497,10 +506,24 @@ impl ViewModel {
         // the first-person view; the third-person model keeps its real length.
         let model_scale = vm_scale;
 
+        // A muzzle flash throws a lot of light on whatever is holding the
+        // weapon. The world's lighting is baked and cannot hear about it, but
+        // the viewmodel is drawn in a pass of its own, so the parts nearest
+        // the muzzle brighten and warm for the two frames the flash lasts.
+        let flash = self.flash;
+        let muzzle = model.muzzle * model_scale;
+        let lit = |at: Vec3| -> [f32; 4] {
+            if flash < 0.01 { return [1.0, 1.0, 1.0, 1.0]; }
+            let d = (at - muzzle).length();
+            let fall = 1.0 / (1.0 + d * d * 17.0);
+            let k = flash * fall * 2.3;
+            [1.0 + k, 1.0 + k * 0.80, 1.0 + k * 0.46, 1.0]
+        };
+
         for part in model.parts {
             let m = meshgen::weapon_part_matrix(hands, model_scale, part);
             r.push_viewmodel(part.shape, PartInstance::from_matrix(
-                m, [1.0, 1.0, 1.0, 1.0], part.mat.layer(), [1.0, 0.0, 0.0]));
+                m, lit(part.offset * model_scale), part.mat.layer(), [1.0, 0.0, 0.0]));
         }
 
         // Gloved hands on the points the model declares. Inferring them from
@@ -511,21 +534,23 @@ impl ViewModel {
         // A glove is a palm and a thumb. One capsule was a pale blob that
         // vanished against the receiver; two shapes in a dark glove colour
         // read as a hand gripping something even at this size.
-        fn glove(r: &mut Renderer, hands: Mat4, at: Vec3, size: Vec3, thumb: f32) {
-            const LEATHER: [f32; 4] = [0.30, 0.29, 0.27, 1.0];
+        fn glove(r: &mut Renderer, hands: Mat4, at: Vec3, size: Vec3, thumb: f32,
+                 light: [f32; 4]) {
+            let leather: [f32; 4] = [0.30 * light[0], 0.29 * light[1], 0.27 * light[2], 1.0];
             let m = hands * Mat4::from_translation(at) * Mat4::from_scale(size);
             r.push_viewmodel(meshgen::PartShape::Bevel, PartInstance::from_matrix(
-                m, LEATHER, Mat::Fabric.layer(), [3.0, 0.0, 0.0]));
+                m, leather, Mat::Fabric.layer(), [3.0, 0.0, 0.0]));
             // Thumb, laid along the weapon on whichever side the hand is.
             let t = hands
                 * Mat4::from_translation(at + Vec3::new(thumb * size.x * 0.62, size.y * 0.20, -size.z * 0.18))
                 * Mat4::from_scale(Vec3::new(size.x * 0.42, size.y * 0.34, size.z * 0.78));
             r.push_viewmodel(meshgen::PartShape::Capsule, PartInstance::from_matrix(
-                t, LEATHER, Mat::Fabric.layer(), [3.0, 0.0, 0.0]));
+                t, leather, Mat::Fabric.layer(), [3.0, 0.0, 0.0]));
         }
         // A forearm is a box aimed along `dir`, built from an explicit basis so
         // the angles cannot be got wrong.
-        fn forearm(r: &mut Renderer, hands: Mat4, from: Vec3, dir: Vec3, len: f32, thick: f32) {
+        fn forearm(r: &mut Renderer, hands: Mat4, from: Vec3, dir: Vec3, len: f32,
+                   thick: f32, light: [f32; 4]) {
             let f = dir.normalize();
             let right = Vec3::Y.cross(f).normalize();
             let up = f.cross(right);
@@ -545,13 +570,15 @@ impl ViewModel {
             // belonging to someone.
             let m = hands * basis(thick, len, from + f * (len * 0.5));
             r.push_viewmodel(meshgen::PartShape::Capsule, PartInstance::from_matrix(
-                m, [0.36, 0.38, 0.31, 1.0], Mat::Camo.layer(), [2.4, 0.0, 0.0]));
+                m, [0.36 * light[0], 0.38 * light[1], 0.31 * light[2], 1.0],
+                Mat::Camo.layer(), [2.4, 0.0, 0.0]));
             // A cuff at the wrist: a short wider band where the sleeve ends
             // and the glove begins, which is what stops the two reading as one
             // continuous tube.
             let c = hands * basis(thick * 1.20, thick * 1.5, from + f * (thick * 0.55));
             r.push_viewmodel(meshgen::PartShape::Cylinder, PartInstance::from_matrix(
-                c, [0.31, 0.32, 0.28, 1.0], Mat::Canvas.layer(), [2.0, 0.0, 0.0]));
+                c, [0.31 * light[0], 0.32 * light[1], 0.28 * light[2], 1.0],
+                Mat::Canvas.layer(), [2.0, 0.0, 0.0]));
         }
 
         // Hands and sleeves scale with the weapon only in the axes the weapon
@@ -559,15 +586,15 @@ impl ViewModel {
         let hand_at = |p: Vec3| Vec3::new(p.x * model_scale.x, p.y * model_scale.y, p.z * model_scale.z);
         let gp = hand_at(model.grip);
         glove(r, hands, Vec3::new(0.006, gp.y + 0.018, gp.z + 0.004),
-              Vec3::new(0.066, 0.090, 0.082), -1.0);
+              Vec3::new(0.066, 0.090, 0.082), -1.0, lit(gp));
         forearm(r, hands, Vec3::new(0.016, gp.y - 0.020, gp.z + 0.050),
-                Vec3::new(0.34, -0.52, 0.78), 0.44, 0.055);
+                Vec3::new(0.34, -0.52, 0.78), 0.44, 0.055, lit(gp));
         if def.shape.two_handed() {
             let fp = hand_at(model.fore);
             glove(r, hands, Vec3::new(-0.006, fp.y - 0.012, fp.z + 0.010),
-                  Vec3::new(0.064, 0.074, 0.096), 1.0);
+                  Vec3::new(0.064, 0.074, 0.096), 1.0, lit(fp));
             forearm(r, hands, Vec3::new(-0.030, fp.y - 0.050, fp.z + 0.060),
-                    Vec3::new(-0.52, -0.50, 0.69), 0.42, 0.052);
+                    Vec3::new(-0.52, -0.50, 0.69), 0.42, 0.052, lit(fp));
         }
 
         // Track the muzzle in world space so effects can be spawned there.
