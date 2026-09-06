@@ -18,8 +18,12 @@ const MAX_PARTICLES: usize = 3000;
 /// Decals are what is left behind when the shooting stops, and in a game
 /// about clones being shot there is a great deal of it. The pool is large
 /// enough that a whole round's worth of blood accumulates rather than
-/// evaporating behind the player.
-const MAX_DECALS: usize = 900;
+/// evaporating behind the player - a contested corridor should be unpleasant
+/// to walk back down.
+///
+/// Three thousand quads is nothing to draw. The cost of a decal is the ray
+/// that found the surface for it, and that is paid once when it lands.
+const MAX_DECALS: usize = 3000;
 const MAX_TRACERS: usize = 96;
 
 /// How long blood stays. Long enough that a busy corridor is still marked
@@ -254,15 +258,15 @@ impl Effects {
 
     /// A round striking a player.
     pub fn blood(&mut self, pos: Vec3, dir: Vec3) {
-        for _ in 0..self.count(7) {
-            let d = (dir + self.random_unit() * 0.8).normalize_or_zero();
+        for _ in 0..self.count(26) {
+            let d = (dir + self.random_unit() * 0.9).normalize_or_zero();
             let particle = Particle {
                 pos,
-                vel: d * self.rng.range(1.5, 5.0),
+                vel: d * self.rng.range(1.5, 8.0),
                 life: 0.0,
-                max_life: self.rng.range(0.20, 0.45),
-                size_start: self.rng.range(0.04, 0.10),
-                size_end: 0.01,
+                max_life: self.rng.range(0.25, 0.70),
+                size_start: self.rng.range(0.05, 0.17),
+                size_end: 0.015,
                 color_start: [0.55, 0.05, 0.04, 0.95],
                 color_end: [0.30, 0.02, 0.02, 0.0],
                 rot: self.rng.range(0.0, 6.28),
@@ -552,35 +556,36 @@ impl Effects {
     /// A hit used to throw a handful of particles that faded out in half a
     /// second, and the room was spotless again immediately afterwards. Every
     /// clone this game is about leaves a mark: rays are cast out from the
-    /// wound - along the shot, back at the shooter, and downward - and
-    /// wherever one meets the world a splatter goes on that surface, at that
-    /// orientation. It accumulates for the whole round.
+    /// wound - along the shot, back at the shooter, sideways, and downward -
+    /// and wherever one meets the world a splatter goes on that surface, at
+    /// that orientation. It accumulates for the whole round.
     ///
-    /// `gore` scales the whole thing: a graze is a few spots, a kill covers
-    /// the wall behind it.
+    /// `gore` scales the whole thing: a graze covers a doorway, a kill covers
+    /// the room.
     pub fn blood_spray(&mut self, pos: Vec3, dir: Vec3, world: &CollisionWorld, gore: f32) {
         let dir = dir.normalize_or(Vec3::Y);
-        let rays = ((9.0 + 17.0 * gore) * self.density.max(0.4)) as usize;
-        for i in 0..rays.max(3) {
+        let rays = ((22.0 + 46.0 * gore) * self.density.max(0.45)) as usize;
+        for i in 0..rays.max(8) {
             // Most of it carries on past the wound; some sprays back at the
-            // shooter, and some simply falls.
-            let spread = 0.55 + gore * 0.45;
-            let cast = match i % 4 {
-                0 | 1 => dir + self.random_unit() * spread,
-                2 => -dir + self.random_unit() * spread * 0.8,
-                _ => Vec3::NEG_Y + self.random_unit() * 0.55,
+            // shooter, some goes out sideways, and some simply falls.
+            let spread = 0.70 + gore * 0.55;
+            let cast = match i % 6 {
+                0 | 1 | 2 => dir + self.random_unit() * spread,
+                3 => -dir + self.random_unit() * spread * 0.9,
+                4 => self.random_unit(),
+                _ => Vec3::NEG_Y + self.random_unit() * 0.75,
             };
             let cast = cast.normalize_or(Vec3::NEG_Y);
-            let reach = self.rng.range(1.2, 6.5 + 5.0 * gore);
+            let reach = self.rng.range(1.0, 9.0 + 7.0 * gore);
             let hit = world.trace_ray(pos, cast, reach, TraceMask::Shot);
             if !hit.hit { continue; }
             // Blood thrown along a surface streaks; blood dropped onto one
             // blots. The angle between the spray and the surface decides.
             let grazing = 1.0 - cast.dot(-hit.normal).clamp(0.0, 1.0);
-            let sprite = if grazing > 0.55 { Sprite::BloodSpray } else { Sprite::BloodSplat };
-            let size = self.rng.range(0.16, 0.42) * (0.75 + gore * 0.75);
+            let sprite = if grazing > 0.5 { Sprite::BloodSpray } else { Sprite::BloodSplat };
+            let size = self.rng.range(0.22, 0.78) * (0.8 + gore * 0.9);
             let dark = self.rng.range(0.0, 0.12);
-            let alpha = self.rng.range(0.72, 0.95);
+            let alpha = self.rng.range(0.74, 0.97);
             let color = [0.30 - dark, 0.028, 0.030, alpha];
             if sprite == Sprite::BloodSpray {
                 // The fan is drawn travelling along the sprite's +u axis, so
@@ -594,21 +599,48 @@ impl Effects {
             } else {
                 self.add_decal(hit.point, hit.normal, size, sprite, color, BLOOD_LIFE);
             }
+            // On anything near vertical, let it run. A few smaller marks
+            // trailing downward off the splat is the difference between paint
+            // thrown at a wall and blood on one.
+            if hit.normal.y.abs() < 0.5 {
+                let runs = self.count(3);
+                for k in 0..runs {
+                    let fall = (k + 1) as f32 * self.rng.range(0.10, 0.30);
+                    let side = self.rng.signed() * 0.08;
+                    let p = hit.point + Vec3::NEG_Y * fall
+                          + (hit.normal.cross(Vec3::Y).normalize_or_zero()) * side;
+                    let shrink = size * (0.55 - k as f32 * 0.12).max(0.16);
+                    let rot = decal_angle(hit.normal, Vec3::NEG_Y);
+                    self.add_decal_rot(p, hit.normal, shrink, rot, Sprite::BloodSpray,
+                                       [0.24, 0.022, 0.024, alpha * 0.85], BLOOD_LIFE);
+                }
+            }
         }
     }
 
     /// The pool a body leaves behind, plus the spray of the killing hit.
     pub fn death_gore(&mut self, pos: Vec3, dir: Vec3, world: &CollisionWorld) {
         self.blood_spray(pos, dir, world, 1.0);
+        // A second burst thrown mostly downward and outward, so the floor
+        // around a body is marked even when nothing is close enough to catch
+        // the spray from the wound itself.
+        for _ in 0..self.count(14) {
+            let cast = (Vec3::NEG_Y * 1.4 + self.random_unit() * 1.5).normalize_or(Vec3::NEG_Y);
+            let hit = world.trace_ray(pos, cast, 7.0, TraceMask::Shot);
+            if !hit.hit { continue; }
+            let size = self.rng.range(0.30, 0.95);
+            let alpha = self.rng.range(0.78, 0.98);
+            self.add_decal(hit.point, hit.normal, size, Sprite::BloodSplat,
+                           [0.26, 0.024, 0.026, alpha], BLOOD_LIFE);
+        }
         // The pool goes on the floor under the body rather than at the wound,
         // which is chest height.
         let down = world.trace_ray(pos, Vec3::NEG_Y, 3.2, TraceMask::Shot);
         if down.hit {
-            let n = self.count(3);
-            for _ in 0..n {
-                let jitter = Vec3::new(self.rng.signed() * 0.45, 0.0, self.rng.signed() * 0.45);
-                let size = self.rng.range(0.45, 0.85);
-                let alpha = self.rng.range(0.80, 0.96);
+            for _ in 0..self.count(9) {
+                let jitter = Vec3::new(self.rng.signed() * 0.85, 0.0, self.rng.signed() * 0.85);
+                let size = self.rng.range(0.55, 1.30);
+                let alpha = self.rng.range(0.82, 0.99);
                 self.add_decal(down.point + jitter, down.normal, size, Sprite::BloodPool,
                                [0.21, 0.020, 0.024, alpha], BLOOD_LIFE);
             }
